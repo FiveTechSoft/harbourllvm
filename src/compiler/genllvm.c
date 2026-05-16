@@ -146,7 +146,6 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    FILE *      yyc;
    int         iSymCount;
    int         iSymIdx;
-   int         iFuncCount;
 
    /* -----------------------------------------------------------------------
     * Open output file.
@@ -171,27 +170,35 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "%%HB_SYMB = type { i8*, i64, i8*, i8* }\n\n" );
    fprintf( yyc, "declare void @hb_vmExecute(i8*, %%HB_SYMB*)\n" );
    fprintf( yyc, "declare %%HB_SYMB* @hb_vmProcessSymbols("
-                 "%%HB_SYMB*, i16, i8*, i32, i16)\n\n" );
+                 "%%HB_SYMB*, i16, i8*, i32, i16)\n" );
+   fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
+   fprintf( yyc, "declare void @hb_INITLINES()\n\n" );
    fprintf( yyc, "@symbols = internal global %%HB_SYMB* null\n\n" );
 
    /* -----------------------------------------------------------------------
     * Pcode globals — one per real function (skip file-decl pseudo-functions).
     * --------------------------------------------------------------------- */
    pFunc = HB_COMP_PARAM->functions.pFirst;
-   iFuncCount = 0;
    while( pFunc )
    {
       if( ( pFunc->funFlags & HB_FUNF_FILE_DECL ) == 0 )
       {
          HB_SIZE n;
-         fprintf( yyc, "@.pcode." );
-         hb_llvmEmitFuncName( yyc, pFunc->szName );
+         /* Determine the LLVM global name for this function's pcode array */
+         if( pFunc == HB_COMP_PARAM->pInitFunc )
+            fprintf( yyc, "@.pcode.hb_INITSTATICS" );
+         else if( pFunc == HB_COMP_PARAM->pLineFunc )
+            fprintf( yyc, "@.pcode.hb_INITLINES" );
+         else
+         {
+            fprintf( yyc, "@.pcode." );
+            hb_llvmEmitFuncName( yyc, pFunc->szName );
+         }
          fprintf( yyc, " = internal constant [%lu x i8] c\"",
                   ( unsigned long ) pFunc->nPCodePos );
          for( n = 0; n < pFunc->nPCodePos; ++n )
             hb_llvmEmitByte( yyc, pFunc->pCode[ n ] );
          fprintf( yyc, "\"\n" );
-         iFuncCount++;
       }
       pFunc = pFunc->pNext;
    }
@@ -257,7 +264,7 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
                iSymIdx );
 
       /* Scope flags as i64 */
-      fprintf( yyc, "           i64 %lu,\n", uFlags );
+      fprintf( yyc, "           i64 %lu,\n", ( unsigned long ) uFlags );
 
       /* Function pointer or null */
       if( pSym->szName[ 0 ] == '(' )
@@ -278,8 +285,9 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
       }
       else
       {
-         /* External (iFunc or deferred or memvar/alias/message) — the VM
-          * resolves these by name at load time; emit null here. */
+         /* Plan 1: all external symbols intentionally get an i8* null
+          * function pointer.  iFunc is deliberately not consulted here;
+          * the VM resolves external symbols by name at load time. */
          fprintf( yyc, "           i8* null,\n" );
       }
 
@@ -303,16 +311,56 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    {
       if( ( pFunc->funFlags & HB_FUNF_FILE_DECL ) == 0 )
       {
-         fprintf( yyc, "define void @" );
-         hb_llvmEmitFuncName( yyc, pFunc->szName );
-         fprintf( yyc, "() {\n" );
+         const char * pFuncLLVMName;  /* plain C string when a special name applies */
+         HB_BOOL      bSpecial;
+
+         if( pFunc == HB_COMP_PARAM->pInitFunc )
+         {
+            pFuncLLVMName = "hb_INITSTATICS";
+            bSpecial = HB_TRUE;
+         }
+         else if( pFunc == HB_COMP_PARAM->pLineFunc )
+         {
+            pFuncLLVMName = "hb_INITLINES";
+            bSpecial = HB_TRUE;
+         }
+         else
+         {
+            pFuncLLVMName = NULL;
+            bSpecial = HB_FALSE;
+         }
+
+         /* define line */
+         if( bSpecial )
+            fprintf( yyc, "define void @%s() {\n", pFuncLLVMName );
+         else
+         {
+            fprintf( yyc, "define void @" );
+            hb_llvmEmitFuncName( yyc, pFunc->szName );
+            fprintf( yyc, "() {\n" );
+         }
+
          fprintf( yyc, "  %%s = load %%HB_SYMB*, %%HB_SYMB** @symbols\n" );
-         fprintf( yyc,
-                  "  call void @hb_vmExecute(i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
-                  ( unsigned long ) pFunc->nPCodePos,
-                  ( unsigned long ) pFunc->nPCodePos );
-         hb_llvmEmitFuncName( yyc, pFunc->szName );
-         fprintf( yyc, ", i32 0, i32 0), %%HB_SYMB* %%s)\n" );
+
+         /* call line — pcode array reference must match the global name emitted above */
+         if( bSpecial )
+         {
+            fprintf( yyc,
+                     "  call void @hb_vmExecute(i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.%s, i32 0, i32 0), %%HB_SYMB* %%s)\n",
+                     ( unsigned long ) pFunc->nPCodePos,
+                     ( unsigned long ) pFunc->nPCodePos,
+                     pFuncLLVMName );
+         }
+         else
+         {
+            fprintf( yyc,
+                     "  call void @hb_vmExecute(i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
+                     ( unsigned long ) pFunc->nPCodePos,
+                     ( unsigned long ) pFunc->nPCodePos );
+            hb_llvmEmitFuncName( yyc, pFunc->szName );
+            fprintf( yyc, ", i32 0, i32 0), %%HB_SYMB* %%s)\n" );
+         }
+
          fprintf( yyc, "  ret void\n}\n\n" );
       }
       pFunc = pFunc->pNext;
@@ -323,19 +371,22 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
     * Calls hb_vmProcessSymbols() to register the symbol table, stores the
     * returned base pointer in @symbols so each HB_FUN_* can find it.
     * --------------------------------------------------------------------- */
-   fprintf( yyc, "define internal void @hb_vm_SymbolInit() {\n" );
-   fprintf( yyc,
-            "  %%r = call %%HB_SYMB* @hb_vmProcessSymbols(\n"
-            "    %%HB_SYMB* getelementptr([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 0),\n"
-            "    i16 %d,\n"
-            "    i8* getelementptr([%lu x i8], [%lu x i8]* @.modname, i32 0, i32 0),\n"
-            "    i32 0, i16 3)\n",
-            iSymCount, iSymCount,
-            iSymCount,
-            ( unsigned long )( strlen( HB_COMP_PARAM->szFile ) + 1 ),
-            ( unsigned long )( strlen( HB_COMP_PARAM->szFile ) + 1 ) );
-   fprintf( yyc, "  store %%HB_SYMB* %%r, %%HB_SYMB** @symbols\n" );
-   fprintf( yyc, "  ret void\n}\n\n" );
+   {
+      unsigned long ulModNameLen = ( unsigned long )( strlen( HB_COMP_PARAM->szFile ) + 1 );
+      fprintf( yyc, "define internal void @hb_vm_SymbolInit() {\n" );
+      fprintf( yyc,
+               "  %%r = call %%HB_SYMB* @hb_vmProcessSymbols(\n"
+               "    %%HB_SYMB* getelementptr([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 0),\n"
+               "    i16 %d,\n"
+               "    i8* getelementptr([%lu x i8], [%lu x i8]* @.modname, i32 0, i32 0),\n"
+               "    i32 0, i16 3)\n",
+               iSymCount, iSymCount,
+               iSymCount,
+               ulModNameLen,
+               ulModNameLen );
+      fprintf( yyc, "  store %%HB_SYMB* %%r, %%HB_SYMB** @symbols\n" );
+      fprintf( yyc, "  ret void\n}\n\n" );
+   }
 
    /* -----------------------------------------------------------------------
     * @llvm.global_ctors — runs @hb_vm_SymbolInit at load time.
