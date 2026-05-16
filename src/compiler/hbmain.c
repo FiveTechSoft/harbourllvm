@@ -3888,6 +3888,10 @@ static void hb_compGenOutput( HB_COMP_DECL, int iLanguage )
             hb_xfree( HB_COMP_PARAM->pOutBuf );
          hb_compGenBufPortObj( HB_COMP_PARAM, &HB_COMP_PARAM->pOutBuf, &HB_COMP_PARAM->nOutBufSize );
          break;
+
+      case HB_LANG_LLVM:
+         hb_compGenLLVMCode( HB_COMP_PARAM, HB_COMP_PARAM->pFileName );
+         break;
    }
 }
 
