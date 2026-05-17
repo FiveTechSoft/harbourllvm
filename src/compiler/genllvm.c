@@ -175,6 +175,24 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
       fprintf( yyc, "declare void @hb_INITLINES()\n" );
+
+   /* Declare every external function symbol so the IR verifier accepts the
+    * forward references in @symbols_table.  A symbol is an external function
+    * when iFunc is set but HB_FS_LOCAL is NOT set (LOCAL means defined here). */
+   pSym = HB_COMP_PARAM->symbols.pFirst;
+   while( pSym )
+   {
+      if( pSym->szName[ 0 ] != '(' &&
+          !( pSym->cScope & HB_FS_LOCAL ) &&
+          pSym->iFunc )
+      {
+         fprintf( yyc, "declare void @" );
+         hb_llvmEmitFuncName( yyc, pSym->szName );
+         fprintf( yyc, "()\n" );
+      }
+      pSym = pSym->pNext;
+   }
+
    fprintf( yyc, "\n" );
    fprintf( yyc, "@symbols = internal global %%HB_SYMB* null\n\n" );
 
@@ -287,11 +305,18 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
          hb_llvmEmitFuncName( yyc, pSym->szName );
          fprintf( yyc, " to i8*),\n" );
       }
+      else if( !( pSym->cScope & HB_FS_DEFERRED ) && pSym->iFunc )
+      {
+         /* External function called from this module (e.g. QOUT).
+          * Emit a non-null function pointer so the linker pulls the symbol
+          * from the runtime library — mirrors genc.c line 338-339. */
+         fprintf( yyc, "           i8* bitcast(void()* @" );
+         hb_llvmEmitFuncName( yyc, pSym->szName );
+         fprintf( yyc, " to i8*),\n" );
+      }
       else
       {
-         /* Plan 1: all external symbols intentionally get an i8* null
-          * function pointer.  iFunc is deliberately not consulted here;
-          * the VM resolves external symbols by name at load time. */
+         /* Memvar / field / alias / deferred — no function pointer. */
          fprintf( yyc, "           i8* null,\n" );
       }
 

@@ -41,6 +41,17 @@ echo
 # HTML-escape stdin
 esc() { sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'; }
 
+# Run a test executable with a hard time limit and no controlling input, so a
+# program that blocks (terminal GT on a non-tty, waiting for a key, ...) cannot
+# hang the whole job. Falls back to a plain run if `timeout` is unavailable.
+run_exe() {
+   if command -v timeout >/dev/null 2>&1; then
+      timeout 60 "$1" < /dev/null
+   else
+      "$1" < /dev/null
+   fi
+}
+
 GIT_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo unknown)"
 HB_VER="$("$HB" -build 2>/dev/null | head -1 || echo Harbour)"
 
@@ -69,9 +80,10 @@ for prg in tests/llvm/*.prg; do
       fi
    fi
 
-   # --- 1. C backend reference build ---
+   # --- 1. C backend reference build (gtstd: non-interactive, CI-safe) ---
    if [ "$status_ir" = "ok" ]; then
-      if ! "$HBMK2" -q -o"$OUT/${name}_c" "$prg" 2> "$OUT/${name}.cbuild.log"; then
+      if ! "$HBMK2" -q -gtstd -o"$OUT/${name}_c" "$prg" \
+            2> "$OUT/${name}.cbuild.log"; then
          status_run="FAIL"; note="C backend build failed"
       fi
    fi
@@ -81,7 +93,7 @@ for prg in tests/llvm/*.prg; do
       if ! "$CLANG" -c -x ir "$OUT/${name}_ll.ll" -o "$OUT/${name}_ll.o" \
             2> "$OUT/${name}.llc.log"; then
          status_run="FAIL"; note="clang could not compile the IR"
-      elif ! "$HBMK2" -q -o"$OUT/${name}_ll" "$OUT/${name}_ll.o" \
+      elif ! "$HBMK2" -q -gtstd -o"$OUT/${name}_ll" "$OUT/${name}_ll.o" \
             2> "$OUT/${name}.llink.log"; then
          status_run="FAIL"; note="linking the LLVM object failed"
       fi
@@ -90,8 +102,8 @@ for prg in tests/llvm/*.prg; do
    # --- 5. run both and diff ---
    diff_txt=""
    if [ "$status_ir" = "ok" ] && [ "$status_run" = "ok" ]; then
-      "$OUT/${name}_c"  > "$OUT/${name}_c.out"  2>&1 || true
-      "$OUT/${name}_ll" > "$OUT/${name}_ll.out" 2>&1 || true
+      run_exe "$OUT/${name}_c"  > "$OUT/${name}_c.out"  2>&1 || true
+      run_exe "$OUT/${name}_ll" > "$OUT/${name}_ll.out" 2>&1 || true
       if ! diff -u "$OUT/${name}_c.out" "$OUT/${name}_ll.out" > "$OUT/${name}.diff"; then
          status_run="FAIL"; note="C and LLVM output differ"
          diff_txt="$(esc < "$OUT/${name}.diff")"
