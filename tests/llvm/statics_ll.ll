@@ -3,7 +3,6 @@
 
 declare void @hb_vmExecute(i8*, %HB_SYMB*)
 declare %HB_SYMB* @hb_vmProcessSymbols(%HB_SYMB*, i16, i8*, i32, i16)
-declare void @hb_INITSTATICS()
 declare void @hb_INITLINES()
 
 @symbols = internal global %HB_SYMB* null

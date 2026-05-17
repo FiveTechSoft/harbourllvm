@@ -171,8 +171,11 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare void @hb_vmExecute(i8*, %%HB_SYMB*)\n" );
    fprintf( yyc, "declare %%HB_SYMB* @hb_vmProcessSymbols("
                  "%%HB_SYMB*, i16, i8*, i32, i16)\n" );
-   fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
-   fprintf( yyc, "declare void @hb_INITLINES()\n\n" );
+   if( HB_COMP_PARAM->pInitFunc == NULL )
+      fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
+   if( HB_COMP_PARAM->pLineFunc == NULL )
+      fprintf( yyc, "declare void @hb_INITLINES()\n" );
+   fprintf( yyc, "\n" );
    fprintf( yyc, "@symbols = internal global %%HB_SYMB* null\n\n" );
 
    /* -----------------------------------------------------------------------
@@ -254,13 +257,14 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    pSym    = HB_COMP_PARAM->symbols.pFirst;
    while( pSym )
    {
-      HB_ULONG uFlags = hb_llvmScopeFlags( HB_COMP_PARAM, pSym );
+      HB_ULONG uFlags   = hb_llvmScopeFlags( HB_COMP_PARAM, pSym );
+      HB_SIZE  nSymLen  = strlen( pSym->szName ) + 1; /* include NUL terminator */
 
       /* Name pointer */
       fprintf( yyc,
                "  %%HB_SYMB { i8* getelementptr([%lu x i8], [%lu x i8]* @.sym.%d, i32 0, i32 0),\n",
-               ( unsigned long )( strlen( pSym->szName ) + 1 ),
-               ( unsigned long )( strlen( pSym->szName ) + 1 ),
+               ( unsigned long ) nSymLen,
+               ( unsigned long ) nSymLen,
                iSymIdx );
 
       /* Scope flags as i64 */
