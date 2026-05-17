@@ -1,0 +1,57 @@
+name: LLVM IR Backend
+
+# Builds Harbour, exercises the `harbour -GL` LLVM IR backend on the programs
+# in tests/llvm/, validates the emitted IR with the LLVM verifier, links it into
+# native executables, compares their output against the C backend, and publishes
+# an HTML report (with the generated IR) to GitHub Pages.
+
+on:
+  push:
+    branches: [master, feature/llvm-ir-emitter]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# allow only one concurrent deployment
+concurrency:
+  group: llvm-ir-pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install LLVM toolchain
+        run: sudo apt-get update && sudo apt-get install -y build-essential clang llvm
+
+      - name: Build Harbour
+        run: make
+
+      - name: Generate, validate and compare LLVM IR
+        run: |
+          chmod +x tests/llvm/run.sh
+          tests/llvm/run.sh build/llvm-ci
+
+      - name: Upload Pages artifact
+        if: ${{ always() }}
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/llvm-ci
+
+  deploy-pages:
+    needs: build-and-validate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
