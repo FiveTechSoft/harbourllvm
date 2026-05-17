@@ -7,7 +7,7 @@ name: LLVM IR Backend
 
 on:
   push:
-    branches: [master, feature/llvm-ir-emitter]
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
