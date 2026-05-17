@@ -4,6 +4,9 @@ name: LLVM IR Backend
 # in tests/llvm/, validates the emitted IR with the LLVM verifier, links it into
 # native executables, compares their output against the C backend, and publishes
 # an HTML report (with the generated IR) to GitHub Pages.
+#
+# The report is published whether or not validation passes — so failures can be
+# reviewed in the browser — but the CI job still fails if any program fails.
 
 on:
   push:
@@ -35,6 +38,8 @@ jobs:
         run: make
 
       - name: Generate, validate and compare LLVM IR
+        id: validate
+        continue-on-error: true
         run: |
           chmod +x tests/llvm/run.sh
           tests/llvm/run.sh build/llvm-ci
@@ -45,8 +50,15 @@ jobs:
         with:
           path: build/llvm-ci
 
+      - name: Fail the job if validation failed
+        if: ${{ steps.validate.outcome == 'failure' }}
+        run: |
+          echo "::error::LLVM IR validation failed — see the published report"
+          exit 1
+
   deploy-pages:
     needs: build-and-validate
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages
