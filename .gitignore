@@ -38,3 +38,6 @@ obj
 !lib/3rd
 !config/*.exe
 !/*.exe
+
+# LLVM backend local build/report output
+/build/
