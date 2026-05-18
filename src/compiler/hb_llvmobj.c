@@ -1,6 +1,5 @@
 /* Embedded LLVM back end for the Harbour compiler. */
 #include "hb_llvmobj.h"
-#include "hb_lldshim.h"
 
 #include "llvm-c/Core.h"
 #include "llvm-c/IRReader.h"
@@ -8,8 +7,6 @@
 #include "llvm-c/TargetMachine.h"
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 int hb_llvmEmitObject( const char * szLLPath, const char * szObjPath )
 {
@@ -17,8 +14,8 @@ int hb_llvmEmitObject( const char * szLLPath, const char * szObjPath )
    LLVMMemoryBufferRef buf = NULL;
    LLVMModuleRef      mod  = NULL;
    LLVMTargetRef      target = NULL;
-   LLVMTargetMachineRef tm;
-   LLVMTargetDataRef  layout;
+   LLVMTargetMachineRef tm     = NULL;
+   LLVMTargetDataRef  layout  = NULL;
    char *             triple;
    char *             err  = NULL;
 
@@ -62,6 +59,15 @@ int hb_llvmEmitObject( const char * szLLPath, const char * szObjPath )
                                  LLVMCodeGenLevelDefault,
                                  LLVMRelocDefault,
                                  LLVMCodeModelDefault );
+
+   if( tm == NULL )
+   {
+      fprintf( stderr, "harbour -GL: cannot create target machine for '%s'\n", triple );
+      LLVMDisposeMessage( triple );
+      LLVMDisposeModule( mod );
+      LLVMContextDispose( ctx );
+      return 1;
+   }
 
    layout = LLVMCreateTargetDataLayout( tm );
    LLVMSetModuleDataLayout( mod, layout );
