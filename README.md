@@ -28,16 +28,16 @@ straight to a native binary and links against the precompiled Harbour runtime
 | Plan | Deliverable | State |
 |------|-------------|-------|
 | 1 — IR text emitter | `harbour -GL` emits LLVM IR text (`.ll`) equivalent to the C backend; validated with clang. | **done** |
-| **2 — Embed libLLVM + lld** | `harbour -GL` produces an `.exe` directly — no external C compiler. | **in progress** |
-| 3 — Unroll pcode to IR | Exported runtime op shim; straight-line IR; no interpreter loop. | planned |
+| 2 — Embed libLLVM + lld | `harbour -GL` produces an `.exe` directly — no external C compiler. | **done** |
+| **3 — Unroll pcode to IR** | Exported runtime op shim; straight-line IR; no interpreter loop. | planned |
 
-Plan 2 progress: a MinGW-ABI LLVM + LLD SDK is built from source; the
-compiler embeds the libLLVM C API to turn its IR into a native object file
-and embeds the LLD linker (via a small C++ shim) to link it — using MinGW
-runtime objects bundled in `lib/win/mingw64-rt/`, so no external toolchain is
-invoked. An IR-derived `hello.exe` already links and runs with the MinGW
-toolchain absent from `PATH`. Remaining: wiring this into `harbour -GL` end to
-end (the compiler currently still stops at the `.ll`).
+Plan 2 done (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API
+to turn its IR into a native object file and embeds the LLD linker (via a
+small C++ shim) to link it — using MinGW runtime objects bundled in
+`lib/win/mingw64-rt/`. `harbour -GL foo.prg` produces a runnable `foo.exe`
+with **no external C compiler or linker** on `PATH`, output identical to the C
+backend. LLVM lives in a side library (`libhbllvm.a`) embedded only into
+`harbour.exe`, so `hbmk2` / `hbrun` stay small.
 
 The full design and step-by-step plans live in
 [`docs/superpowers/`](docs/superpowers/).
@@ -45,16 +45,19 @@ The full design and step-by-step plans live in
 ## Using the LLVM backend
 
 ```sh
-harbour -GL hello.prg      # emit hello.ll (LLVM IR text)
+harbour -GL hello.prg      # -> hello.ll, hello.o, and hello.exe
 ```
 
 `-GL` selects the `HB_LANG_LLVM` output language, alongside the existing `-GC`
-(C) and `-GH` (portable object) backends.
+(C) and `-GH` (portable object) backends. On a Harbour built with the embedded
+backend, `-GL` writes the LLVM IR, compiles it to a native object, and links
+`hello.exe` — all in-process, no external toolchain. The intermediate `.ll`
+and `.o` are kept for inspection.
 
-For Plan 1 the emitted IR mirrors what the C backend produces: each function
-becomes an LLVM function that hands its pcode to the Harbour VM, and the module
-symbol table is registered through an `@llvm.global_ctors` constructor. The
-program still uses the pcode interpreter at runtime — removing that is Plan 3.
+The emitted IR mirrors what the C backend produces: each function becomes an
+LLVM function that hands its pcode to the Harbour VM, and the module symbol
+table is registered through an `@llvm.global_ctors` constructor. The program
+still uses the pcode interpreter at runtime — removing that is Plan 3.
 
 ## How it is verified
 
