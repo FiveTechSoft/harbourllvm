@@ -54,6 +54,9 @@
 
 #define _HB_API_INTERNAL_
 #include "hbcomp.h"
+#include "hb_llvmobj.h"
+
+#include <string.h>
 
 /* -------------------------------------------------------------------------
  * Helper: emit one pcode byte as an LLVM IR string escape (\HH).
@@ -428,4 +431,55 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
 
    if( ! HB_COMP_PARAM->fQuiet )
       hb_compOutStd( HB_COMP_PARAM, "LLVM IR output done\n" );
+
+   /* -----------------------------------------------------------------------
+    * Plan 2: embedded back end — IR -> object -> executable.
+    *
+    * Calls are made through the g_hb_llvm_backend dispatch table so that
+    * tools linking libhbcplr.a without libhbllvm.a (hbrun, hbmk2, …) skip
+    * this path gracefully.  harbour.exe links libhbllvm.a which registers
+    * the real implementations via hb_llvmBackendRegister() at startup.
+    *
+    * The intermediate .ll and .o are kept alongside the output (useful for
+    * inspection).
+    * --------------------------------------------------------------------- */
+   if( g_hb_llvm_backend.emitObject != NULL )
+   {
+      char szObj[ HB_PATH_MAX ];
+      char szExe[ HB_PATH_MAX ];
+      char szLibDir[ HB_PATH_MAX ];
+      char * pDot;
+
+      hb_strncpy( szObj, szFileName, sizeof( szObj ) - 1 );
+      hb_strncpy( szExe, szFileName, sizeof( szExe ) - 1 );
+
+      /* Replace ".ll" extension with ".o" and ".exe" */
+      pDot = strrchr( szObj, '.' );
+      if( pDot )
+         hb_strncpy( pDot, ".o",
+                     sizeof( szObj ) - ( HB_SIZE ) ( pDot - szObj ) - 1 );
+
+      pDot = strrchr( szExe, '.' );
+      if( pDot )
+         hb_strncpy( pDot, ".exe",
+                     sizeof( szExe ) - ( HB_SIZE ) ( pDot - szExe ) - 1 );
+
+      /* Runtime archives live next to harbour.exe: <prefix>/lib/win/mingw64 */
+      g_hb_llvm_backend.runtimeLibDir( szLibDir, sizeof( szLibDir ) );
+
+      if( g_hb_llvm_backend.emitObject( szFileName, szObj ) == 0 )
+      {
+         if( g_hb_llvm_backend.linkExe( szObj, szLibDir, szExe ) == 0 )
+         {
+            if( ! HB_COMP_PARAM->fQuiet )
+               hb_compOutStd( HB_COMP_PARAM, "LLVM: executable created\n" );
+         }
+         else
+            hb_compGenError( HB_COMP_PARAM, hb_comp_szErrors, 'E',
+                             HB_COMP_ERR_CREATE_OUTPUT, szExe, NULL );
+      }
+      else
+         hb_compGenError( HB_COMP_PARAM, hb_comp_szErrors, 'E',
+                          HB_COMP_ERR_CREATE_OUTPUT, szObj, NULL );
+   }
 }

@@ -26,7 +26,7 @@ C_SOURCES := \
    gencc.c \
    genllvm.c \
    genhrb.c \
-   hb_llvmobj.c \
+   hb_llvmstub.c \
    hbcmplib.c \
    hbcomp.c \
    hbdbginf.c \
@@ -43,8 +43,9 @@ C_SOURCES := \
    hbusage.c \
    ppcomp.c \
 
-CPP_SOURCES := \
-   hb_lldshim.cpp \
+# hb_llvmobj.c and hb_lldshim.cpp live in src/llvmbe/Makefile (libhbllvm.a)
+# so that hbrun and other tools that link libhbcplr.a do not drag in LLVM+LLD.
+# hb_llvmstub.c provides weak fallback symbols so libhbcplr.a links standalone.
 
 LIBNAME := hbcplr
 

@@ -20,6 +20,11 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined( _WIN32 ) || defined( __WIN32__ ) || defined( WIN32 )
+#  define WIN32_LEAN_AND_MEAN
+#  include <windows.h>
+#endif
+
 int hb_llvmEmitObject( const char * szLLPath, const char * szObjPath )
 {
    LLVMContextRef     ctx;
@@ -281,4 +286,90 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       free( apszAlloc[ i ] );
 
    return rc;
+}
+
+/*
+ * hb_llvmRuntimeLibDir
+ *
+ * Fill szBuf with the absolute path of the Harbour runtime lib directory
+ * (lib/win/mingw64), derived relative to the running harbour.exe.
+ *
+ * Layout:  <prefix>/bin/win/mingw64/harbour.exe
+ *          <prefix>/lib/win/mingw64/   <- what we return
+ *
+ * Strategy: get the exe path via GetModuleFileNameA, normalise slashes,
+ * strip the exe filename, then go up three directory components (mingw64,
+ * win, bin) to reach <prefix>, then append lib/win/mingw64.
+ *
+ * Windows-only (Plan 2 is x86_64 Windows only).
+ */
+void hb_llvmRuntimeLibDir( char * szBuf, int nBufLen )
+{
+#if defined( _WIN32 ) || defined( __WIN32__ ) || defined( WIN32 )
+   char   szExe[ 4096 ];
+   char * p;
+   int    i;
+
+   szBuf[ 0 ] = '\0';
+
+   if( GetModuleFileNameA( NULL, szExe, ( DWORD ) sizeof( szExe ) ) == 0 )
+   {
+      fprintf( stderr, "harbour -GL: GetModuleFileNameA failed\n" );
+      return;
+   }
+
+   /* Normalise backslashes to forward slashes */
+   for( p = szExe; *p; ++p )
+      if( *p == '\\' ) *p = '/';
+
+   /* Strip trailing filename: find last '/' and terminate */
+   p = strrchr( szExe, '/' );
+   if( p )
+      *p = '\0';   /* szExe now holds <prefix>/bin/win/mingw64 */
+
+   /* Walk up three directory components to reach <prefix>:
+    * 1) mingw64  2) win  3) bin */
+   for( i = 0; i < 3; ++i )
+   {
+      p = strrchr( szExe, '/' );
+      if( p )
+         *p = '\0';
+      else
+      {
+         /* Unexpected layout — fall back to cwd */
+         szBuf[ 0 ] = '.';
+         szBuf[ 1 ] = '\0';
+         return;
+      }
+   }
+
+   /* szExe is now <prefix>; append the lib sub-path */
+   snprintf( szBuf, ( size_t ) nBufLen, "%s/lib/win/mingw64", szExe );
+
+#else
+   /* Non-Windows stub — not used in Plan 2 */
+   ( void ) nBufLen;
+   szBuf[ 0 ] = '\0';
+#endif
+}
+
+/*
+ * hb_llvmBackendInit
+ *
+ * Module constructor: called automatically when libhbllvm.a is linked into
+ * an executable.  Registers the real LLVM back-end implementations into the
+ * dispatch table defined in libhbcplr.a (g_hb_llvm_backend).
+ *
+ * Using GCC's __attribute__((constructor)) ensures this runs before main(),
+ * so the table is filled before any compiler call reaches genllvm.c.
+ */
+static void hb_llvmBackendInit( void ) __attribute__((constructor));
+static void hb_llvmBackendInit( void )
+{
+   static const HB_LLVM_BACKEND s_backend = {
+      hb_llvmEmitObject,
+      hb_llvmLinkExe,
+      hb_llvmRuntimeLibDir
+   };
+   hb_llvmBackendRegister( &s_backend );
 }

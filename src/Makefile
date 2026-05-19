@@ -9,7 +9,8 @@ ifeq ($(HB_BUILD_PARTS),compiler)
       nortl \
       pp{common,nortl} \
       compiler \
-      main{pp,compiler} \
+      llvmbe{compiler} \
+      main{pp,compiler,llvmbe} \
 
 else
 
@@ -84,7 +85,7 @@ else
       HB_COMP_REF :=
       HB_COMP_RF2 := {pp}
    else
-      HB_COMP_DIR := main{pp,compiler}
+      HB_COMP_DIR := llvmbe{compiler} main{pp,compiler,llvmbe}
       HB_COMP_REF := {main}
       HB_COMP_RF2 := {main}
    endif
