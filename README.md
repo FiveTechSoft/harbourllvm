@@ -27,9 +27,17 @@ straight to a native binary and links against the precompiled Harbour runtime
 
 | Plan | Deliverable | State |
 |------|-------------|-------|
-| **1 — IR text emitter** | `harbour -GL` emits LLVM IR text (`.ll`) equivalent to the C backend; validated with clang. | **in progress** |
-| 2 — Embed libLLVM + lld | `harbour -GL` produces an `.exe` directly — no external C compiler. | planned |
+| 1 — IR text emitter | `harbour -GL` emits LLVM IR text (`.ll`) equivalent to the C backend; validated with clang. | **done** |
+| **2 — Embed libLLVM + lld** | `harbour -GL` produces an `.exe` directly — no external C compiler. | **in progress** |
 | 3 — Unroll pcode to IR | Exported runtime op shim; straight-line IR; no interpreter loop. | planned |
+
+Plan 2 progress: a MinGW-ABI LLVM + LLD SDK is built from source; the
+compiler embeds the libLLVM C API to turn its IR into a native object file
+and embeds the LLD linker (via a small C++ shim) to link it — using MinGW
+runtime objects bundled in `lib/win/mingw64-rt/`, so no external toolchain is
+invoked. An IR-derived `hello.exe` already links and runs with the MinGW
+toolchain absent from `PATH`. Remaining: wiring this into `harbour -GL` end to
+end (the compiler currently still stops at the `.ll`).
 
 The full design and step-by-step plans live in
 [`docs/superpowers/`](docs/superpowers/).

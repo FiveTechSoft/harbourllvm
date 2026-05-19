@@ -176,7 +176,7 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
    /* Build the bundled runtime dir path: replace the last path component
     * of szLibDir ("mingw64") with "mingw64-rt". */
    {
-      char szTmp[ 1024 ];
+      char szTmp[ 4096 ];
       char * p;
       snprintf( szTmp, sizeof( szTmp ), "%s", szLibDir );
       /* Normalise backslashes */
@@ -206,7 +206,7 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
    /* CRT startup objects — must come first, before the user object.
     * crt2.o provides mainCRTStartup; crtbegin.o/.end.o wrap C++ ctors/dtors. */
    {
-      char szPath[ 4096 ];
+      char szPath[ 8192 ];
       snprintf( szPath, sizeof( szPath ), "%s/crt2.o",     szRtDir );
       PUSH_DUP( szPath );
       snprintf( szPath, sizeof( szPath ), "%s/crtbegin.o", szRtDir );
@@ -220,7 +220,7 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
     * hb_vmSetDefaultGT("STD"), overriding the platform default (gtwin).
     * Shipped as lib/win/mingw64-rt/hb_llvmgtstd.o — no compilation at runtime. */
    {
-      char szPath[ 4096 ];
+      char szPath[ 8192 ];
       snprintf( szPath, sizeof( szPath ), "%s/hb_llvmgtstd.o", szRtDir );
       PUSH_DUP( szPath );
    }
@@ -256,15 +256,15 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
     * All resolved from the bundled mingw64-rt directory via the -L above. */
    argv[ argc++ ] = "-lstdc++";
    argv[ argc++ ] = "-lmingw32";
-   argv[ argc++ ] = "-lgcc_eh";
    argv[ argc++ ] = "-lgcc";
+   argv[ argc++ ] = "-lgcc_eh";
    argv[ argc++ ] = "-lmingwex";
    argv[ argc++ ] = "-lmoldname";
    argv[ argc++ ] = "-lmsvcrt";
 
    /* CRT end object — GCC places it after all user code and libraries */
    {
-      char szPath[ 4096 ];
+      char szPath[ 8192 ];
       snprintf( szPath, sizeof( szPath ), "%s/crtend.o", szRtDir );
       PUSH_DUP( szPath );
    }
