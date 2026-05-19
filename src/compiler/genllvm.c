@@ -445,27 +445,57 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
     * --------------------------------------------------------------------- */
    if( g_hb_llvm_backend.emitObject != NULL )
    {
-      char szObj[ HB_PATH_MAX ];
-      char szExe[ HB_PATH_MAX ];
-      char szLibDir[ HB_PATH_MAX ];
+      /* I3: Use 4096-byte buffers — hb_llvmRuntimeLibDir builds paths with
+       * 4096-byte internals; HB_PATH_MAX (264) can silently truncate a long
+       * LLVM install prefix when it is written back through the callback. */
+      char szObj[ 4096 ];
+      char szExe[ 4096 ];
+      char szLibDir[ 4096 ];
       char * pDot;
 
       hb_strncpy( szObj, szFileName, sizeof( szObj ) - 1 );
       hb_strncpy( szExe, szFileName, sizeof( szExe ) - 1 );
 
-      /* Replace ".ll" extension with ".o" and ".exe" */
+      /* I2: Replace ".ll" extension with ".o" — guard the NULL case
+       * defensively; in practice szFileName always ends in ".ll" because the
+       * extension is forced above, but if that ever changes we must not
+       * silently overwrite the IR file. */
       pDot = strrchr( szObj, '.' );
       if( pDot )
          hb_strncpy( pDot, ".o",
                      sizeof( szObj ) - ( HB_SIZE ) ( pDot - szObj ) - 1 );
+      else
+      {
+         hb_compGenError( HB_COMP_PARAM, hb_comp_szErrors, 'E',
+                          HB_COMP_ERR_CREATE_OUTPUT, szObj, NULL );
+         return;
+      }
 
+      /* I2: Same guard for the ".exe" path. */
       pDot = strrchr( szExe, '.' );
       if( pDot )
          hb_strncpy( pDot, ".exe",
                      sizeof( szExe ) - ( HB_SIZE ) ( pDot - szExe ) - 1 );
+      else
+      {
+         hb_compGenError( HB_COMP_PARAM, hb_comp_szErrors, 'E',
+                          HB_COMP_ERR_CREATE_OUTPUT, szExe, NULL );
+         return;
+      }
 
       /* Runtime archives live next to harbour.exe: <prefix>/lib/win/mingw64 */
       g_hb_llvm_backend.runtimeLibDir( szLibDir, sizeof( szLibDir ) );
+
+      /* I1: Guard against GetModuleFileNameA failure leaving szLibDir as "".
+       * Proceeding with an empty -L path would silently link against the
+       * wrong (or no) runtime libraries. */
+      if( szLibDir[ 0 ] == '\0' )
+      {
+         hb_compGenError( HB_COMP_PARAM, hb_comp_szErrors, 'E',
+                          HB_COMP_ERR_CREATE_OUTPUT,
+                          "(runtime lib dir unknown)", NULL );
+         return;
+      }
 
       if( g_hb_llvm_backend.emitObject( szFileName, szObj ) == 0 )
       {
