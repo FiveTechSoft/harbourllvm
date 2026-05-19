@@ -41,3 +41,8 @@ obj
 
 # LLVM backend local build/report output
 /build/
+
+# Bundled MinGW runtime (CRT objects + import libs) shipped with the
+# LLVM backend so harbour -GL links without an external toolchain.
+!lib/win/mingw64-rt/
+!lib/win/mingw64-rt/**
