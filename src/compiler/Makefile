@@ -1,5 +1,9 @@
 ROOT := ../../
 
+include $(TOP)$(ROOT)config/llvm-paths.mk
+CXX              := g++
+HB_USER_CFLAGS   += -I$(shell $(HB_LLVM_CONFIG) --includedir)
+
 #YACC_FLAGS := -p hb_comp
 YACC_SOURCE := harbour.y
 YACC_DEPEND := complex.c
@@ -22,6 +26,7 @@ C_SOURCES := \
    gencc.c \
    genllvm.c \
    genhrb.c \
+   hb_llvmobj.c \
    hbcmplib.c \
    hbcomp.c \
    hbdbginf.c \
@@ -37,6 +42,9 @@ C_SOURCES := \
    hbstripl.c \
    hbusage.c \
    ppcomp.c \
+
+CPP_SOURCES := \
+   hb_lldshim.cpp \
 
 LIBNAME := hbcplr
 
