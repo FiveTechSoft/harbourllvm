@@ -18,6 +18,7 @@
  */
 
 #include "hb_pcdec.h"
+#include "hbapi.h"   /* hb_xgrabz / hb_xfree */
 
 /*
  * Straight-line emitter "in scope" subset (fSupported = HB_TRUE):
@@ -273,4 +274,94 @@ HB_SIZE hb_pcodeInstrLen( const HB_BYTE * pCode )
       default:
          return 0;   /* HB_PCK_UNKNOWN — forces whole-function fallback */
    }
+}
+
+/* Signed jump displacement relative to the START of the jump instruction.
+ * (hb_vmExecute does `pCode += disp` while pCode still points at the opcode
+ * byte — verified against src/vm/hvm.c HB_P_JUMP* cases.) */
+HB_ISIZ hb_pcodeJumpOffset( const HB_BYTE * pCode )
+{
+   switch( pCode[ 0 ] )
+   {
+      case HB_P_JUMPNEAR:
+      case HB_P_JUMPFALSENEAR:
+      case HB_P_JUMPTRUENEAR:
+         return ( signed char ) pCode[ 1 ];
+      case HB_P_JUMP:
+      case HB_P_JUMPFALSE:
+      case HB_P_JUMPTRUE:
+         return HB_PCODE_MKSHORT( &pCode[ 1 ] );
+      case HB_P_JUMPFAR:
+      case HB_P_JUMPFALSEFAR:
+      case HB_P_JUMPTRUEFAR:
+         return HB_PCODE_MKINT24( &pCode[ 1 ] );
+      default:
+         return 0;
+   }
+}
+
+static HB_BOOL hb_pcodeIsJump( HB_BYTE op )
+{
+   switch( op )
+   {
+      case HB_P_JUMP:      case HB_P_JUMPNEAR:      case HB_P_JUMPFAR:
+      case HB_P_JUMPFALSE: case HB_P_JUMPFALSENEAR: case HB_P_JUMPFALSEFAR:
+      case HB_P_JUMPTRUE:  case HB_P_JUMPTRUENEAR:  case HB_P_JUMPTRUEFAR:
+         return HB_TRUE;
+      default:
+         return HB_FALSE;
+   }
+}
+
+/* Scan pcode[0..nSize); populate *pMap.
+ * Marks block leaders at: offset 0, every jump target, and the fall-through
+ * instruction after every conditional jump.
+ * Returns HB_FALSE if the stream is malformed (unknown opcode length, or a
+ * jump target outside the buffer). The caller must free pMap->abLeader with
+ * hb_xfree() on success. */
+HB_BOOL hb_pcodeAnalyze( const HB_BYTE * pCode, HB_SIZE nSize, HB_PCMAP * pMap )
+{
+   HB_SIZE pos;
+
+   pMap->nSize         = nSize;
+   pMap->fAllSupported = HB_TRUE;
+   pMap->abLeader      = ( HB_BYTE * ) hb_xgrabz( nSize + 1 );
+   if( nSize > 0 )
+      pMap->abLeader[ 0 ] = HB_TRUE;    /* entry is always a block leader */
+
+   pos = 0;
+   while( pos < nSize )
+   {
+      HB_BYTE op  = pCode[ pos ];
+      HB_SIZE len = hb_pcodeInstrLen( &pCode[ pos ] );
+
+      if( len == 0 || pos + len > nSize )   /* malformed or unmodelled opcode */
+      {
+         hb_xfree( pMap->abLeader );
+         pMap->abLeader = NULL;
+         return HB_FALSE;
+      }
+
+      if( ! hb_pcInfo[ op ].fSupported )
+         pMap->fAllSupported = HB_FALSE;
+
+      if( hb_pcodeIsJump( op ) )
+      {
+         HB_ISIZ disp   = hb_pcodeJumpOffset( &pCode[ pos ] );
+         HB_ISIZ target = ( HB_ISIZ ) pos + disp;   /* relative to instruction start */
+
+         if( target < 0 || ( HB_SIZE ) target > nSize )
+         {
+            hb_xfree( pMap->abLeader );
+            pMap->abLeader = NULL;
+            return HB_FALSE;
+         }
+         if( ( HB_SIZE ) target < nSize )
+            pMap->abLeader[ target ] = HB_TRUE;      /* jump target is a leader */
+         if( pos + len < nSize )
+            pMap->abLeader[ pos + len ] = HB_TRUE;   /* fall-through is a leader */
+      }
+      pos += len;
+   }
+   return HB_TRUE;
 }

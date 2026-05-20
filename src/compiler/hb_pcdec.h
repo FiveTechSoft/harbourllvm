@@ -38,4 +38,25 @@ extern const HB_PCINFO hb_pcInfo[];
  * string/block opcodes). Returns 0 if the opcode is HB_PCK_UNKNOWN. */
 extern HB_SIZE hb_pcodeInstrLen( const HB_BYTE * pCode );
 
+/* Per-function basic-block map. After hb_pcodeAnalyze() succeeds,
+ * abLeader[off] is HB_TRUE when a basic block begins at pcode offset off.
+ * fAllSupported is HB_TRUE only if every opcode in the function is in the
+ * straight-line subset (genllvm.c uses the interpreter fallback otherwise). */
+typedef struct
+{
+   HB_BYTE * abLeader;       /* nSize bytes, 1 = block leader              */
+   HB_SIZE   nSize;          /* pcode length                               */
+   HB_BOOL   fAllSupported;  /* HB_FALSE -> caller must use the fallback    */
+} HB_PCMAP;
+
+/* Scan pcode[0..nSize); fill *pMap. Returns HB_TRUE on a clean scan
+ * (instruction boundaries consistent), HB_FALSE on a malformed stream.
+ * The caller frees pMap->abLeader with hb_xfree(). */
+extern HB_BOOL hb_pcodeAnalyze( const HB_BYTE * pCode, HB_SIZE nSize,
+                                HB_PCMAP * pMap );
+
+/* Signed jump displacement of the jump instruction at pCode (relative to
+ * the START of that instruction). Valid only for jump opcodes. */
+extern HB_ISIZ hb_pcodeJumpOffset( const HB_BYTE * pCode );
+
 #endif /* HB_PCDEC_H_ */
