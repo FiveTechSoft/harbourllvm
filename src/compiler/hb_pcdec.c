@@ -234,6 +234,11 @@ typedef char hb_pcdec_size_check[
    ( sizeof( hb_pcInfo ) / sizeof( hb_pcInfo[ 0 ] ) == HB_PCDEC_ENTRY_COUNT )
    ? 1 : -1 ];
 
+/* The HB_P_PUSHDOUBLE row hardcodes length 11 ( 3 + sizeof(double) ).
+ * Assert the assumption so a non-8-byte-double target fails to compile
+ * rather than silently mis-decoding a supported opcode. */
+typedef char hb_pcdec_double_check[ ( sizeof( double ) == 8 ) ? 1 : -1 ];
+
 HB_SIZE hb_pcodeInstrLen( const HB_BYTE * pCode )
 {
    const HB_PCINFO * pInfo = &hb_pcInfo[ pCode[ 0 ] ];
