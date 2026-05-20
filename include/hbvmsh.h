@@ -22,8 +22,8 @@ extern HB_EXPORT int hb_vmsh_pushstring( const char * szText, HB_SIZE nLen );
 /* locals / statics */
 extern HB_EXPORT int hb_vmsh_pushlocal( int iLocal );
 extern HB_EXPORT int hb_vmsh_poplocal( int iLocal );
-extern HB_EXPORT int hb_vmsh_pushstatic( HB_USHORT uiStatic );
-extern HB_EXPORT int hb_vmsh_popstatic( HB_USHORT uiStatic );
+extern HB_EXPORT int hb_vmsh_pushstatic( int iStatic );
+extern HB_EXPORT int hb_vmsh_popstatic( int iStatic );
 
 /* symbol push (pSym points into the module @symbols_table) */
 extern HB_EXPORT int hb_vmsh_pushsymbol( PHB_SYMB pSym );
@@ -56,12 +56,12 @@ extern HB_EXPORT int hb_vmsh_pop( void );
 extern HB_EXPORT int hb_vmsh_duplicate( void );
 
 /* frame / parameters */
-extern HB_EXPORT int hb_vmsh_frame( HB_USHORT uiLocals, unsigned char ucParams );
+extern HB_EXPORT int hb_vmsh_frame( int iLocals, int iParams );
 
-/* calls — uiParams is the operand of HB_P_FUNCTION/DO; the symbol was
+/* calls — iParams is the operand of HB_P_FUNCTION/DO; the symbol was
  * already pushed by a preceding HB_P_PUSHSYM. */
-extern HB_EXPORT int hb_vmsh_function( HB_USHORT uiParams );
-extern HB_EXPORT int hb_vmsh_do( HB_USHORT uiParams );
+extern HB_EXPORT int hb_vmsh_function( int iParams );
+extern HB_EXPORT int hb_vmsh_do( int iParams );
 
 /* return value */
 extern HB_EXPORT int hb_vmsh_retvalue( void );

@@ -295,9 +295,18 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
    pos = 0;
    while( pos < nPCSize )
    {
+      char    szNextLabel[ 32 ];   /* "epilogue" or "i<nextOff>" */
       HB_BYTE op = pCode[ pos ];
       len     = hb_pcodeInstrLen( &pCode[ pos ] );
       nextOff = pos + len;
+
+      /* Guard: if the fall-through offset is past the end of pcode there is
+       * no i<nextOff> block — branch to epilogue instead (Fix 2). */
+      if( nextOff >= nPCSize )
+         hb_strncpy( szNextLabel, "epilogue", sizeof( szNextLabel ) - 1 );
+      else
+         hb_snprintf( szNextLabel, sizeof( szNextLabel ), "i%lu",
+                      ( unsigned long ) nextOff );
 
       fprintf( yyc, "i%lu:\n", ( unsigned long ) pos );
 
@@ -305,10 +314,7 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
       {
          case HB_P_LINE:
          case HB_P_NOOP:
-            if( nextOff < nPCSize )
-               fprintf( yyc, "  br label %%i%lu\n", ( unsigned long ) nextOff );
-            else
-               fprintf( yyc, "  br label %%epilogue\n" );
+            fprintf( yyc, "  br label %%%s\n", szNextLabel );
             break;
 
          case HB_P_ENDPROC:
@@ -338,7 +344,7 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      "jpdone%lu:\n"
                      "  %%vjp%lu = load i32, i32* %%jp%lu\n"
                      "  %%bjp%lu = icmp ne i32 %%vjp%lu, 0\n"
-                     "  br i1 %%bjp%lu, label %%i%lu, label %%i%ld\n",
+                     "  br i1 %%bjp%lu, label %%%s, label %%i%ld\n",
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
@@ -346,8 +352,8 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos,
-                     ( unsigned long ) nextOff,  /* not taken (value is TRUE)  */
-                     ( long ) target             /* taken    (value is FALSE)  */
+                     szNextLabel,            /* not taken (value is TRUE)  */
+                     ( long ) target         /* taken    (value is FALSE)  */
                      );
             break;
          }
@@ -365,7 +371,7 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      "jpdone%lu:\n"
                      "  %%vjp%lu = load i32, i32* %%jp%lu\n"
                      "  %%bjp%lu = icmp ne i32 %%vjp%lu, 0\n"
-                     "  br i1 %%bjp%lu, label %%i%ld, label %%i%lu\n",
+                     "  br i1 %%bjp%lu, label %%i%ld, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
@@ -373,8 +379,8 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos,
-                     ( long ) target,            /* taken    (value is TRUE)   */
-                     ( unsigned long ) nextOff   /* not taken (value is FALSE) */
+                     ( long ) target,        /* taken    (value is TRUE)   */
+                     szNextLabel             /* not taken (value is FALSE) */
                      );
             break;
          }
@@ -383,45 +389,45 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushnil()\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
 
          case HB_P_TRUE:
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushlogical(i32 1)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
 
          case HB_P_FALSE:
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushlogical(i32 0)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
 
          case HB_P_ZERO:
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushint(i32 0)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
 
          case HB_P_ONE:
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushint(i32 1)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
 
          case HB_P_PUSHBYTE:
@@ -430,10 +436,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushint(i32 %d)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, iVal,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -443,10 +449,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushint(i32 %d)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, iVal,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -456,10 +462,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushlong(i64 %ld)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( long ) nVal,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -469,10 +475,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushlong(i64 %lld)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( long long ) nVal,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -487,12 +493,12 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushdouble(double 0x%016llX, i32 %d, i32 %d)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos,
                      ( unsigned long long ) uBits,
                      iW, iD,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -507,12 +513,12 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
                      "i64 %lu)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos,
                      ( unsigned long ) nStr, ( unsigned long ) nStr, iIdx,
                      ( unsigned long ) nPush,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -526,12 +532,12 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
                      "i64 %lu)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos,
                      ( unsigned long ) nStr, ( unsigned long ) nStr, iIdx,
                      ( unsigned long ) nPush,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -545,12 +551,12 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
                      "i64 %lu)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos,
                      ( unsigned long ) nSize, ( unsigned long ) nSize, iIdx,
                      ( unsigned long ) nPush,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -560,10 +566,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushlocal(i32 %d)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, iLocal,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -573,10 +579,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushlocal(i32 %d)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, iLocal,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -586,10 +592,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_poplocal(i32 %d)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, iLocal,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -599,10 +605,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_poplocal(i32 %d)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, iLocal,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -612,10 +618,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushstatic(i32 %u)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned ) uiStatic,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -625,10 +631,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_popstatic(i32 %u)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned ) uiStatic,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -639,11 +645,11 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
                      "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos,
                      iSymCount, iSymCount, ( unsigned ) uiSym,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -660,7 +666,7 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      "ipfs%lua:\n"
                      "  %%r%lub = call i32 @hb_vmsh_pushnil()\n"
                      "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
-                     "  br i1 %%c%lub, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lub, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos,
                      iSymCount, iSymCount, ( unsigned ) uiSym,
                      ( unsigned long ) pos, ( unsigned long ) pos,
@@ -668,7 +674,7 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos,
-                     ( unsigned long ) nextOff );
+                     szNextLabel );
             break;
          }
 
@@ -679,11 +685,11 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
                      "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos,
                      iSymCount, iSymCount, uiSym,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -691,10 +697,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc, \
                      "  %%r%lu = call i32 @hb_vmsh_" nm "()\n" \
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n" \
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n", \
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n", \
                      ( unsigned long ) pos, \
                      ( unsigned long ) pos, ( unsigned long ) pos, \
-                     ( unsigned long ) pos, ( unsigned long ) nextOff )
+                     ( unsigned long ) pos, szNextLabel )
 
          case HB_P_PLUS:           HB_EMIT_NOARG_SHIM( "plus" );           break;
          case HB_P_MINUS:          HB_EMIT_NOARG_SHIM( "minus" );          break;
@@ -726,10 +732,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_frame(i32 %u, i32 %u)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, uiLocals, ucParams,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -739,10 +745,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_function(i32 %u)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned ) uiParams,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -752,10 +758,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_function(i32 %u)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, uiParams,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -765,10 +771,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_do(i32 %u)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( unsigned ) uiParams,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 
@@ -778,10 +784,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_do(i32 %u)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, uiParams,
                      ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+                     ( unsigned long ) pos, szNextLabel );
             break;
          }
 

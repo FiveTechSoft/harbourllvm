@@ -12706,17 +12706,17 @@ HB_EXPORT int hb_vmsh_poplocal( int iLocal )
    return ( int ) hb_stackGetActionRequest();
 }
 
-HB_EXPORT int hb_vmsh_pushstatic( HB_USHORT uiStatic )
+HB_EXPORT int hb_vmsh_pushstatic( int iStatic )
 {
    HB_STACK_TLS_PRELOAD
-   hb_vmPushStatic( uiStatic );
+   hb_vmPushStatic( ( HB_USHORT ) iStatic );
    return ( int ) hb_stackGetActionRequest();
 }
 
-HB_EXPORT int hb_vmsh_popstatic( HB_USHORT uiStatic )
+HB_EXPORT int hb_vmsh_popstatic( int iStatic )
 {
    HB_STACK_TLS_PRELOAD
-   hb_vmPopStatic( uiStatic );
+   hb_vmPopStatic( ( HB_USHORT ) iStatic );
    return ( int ) hb_stackGetActionRequest();
 }
 
@@ -12890,28 +12890,28 @@ HB_EXPORT int hb_vmsh_duplicate( void )
 
 /* frame / parameters */
 
-HB_EXPORT int hb_vmsh_frame( HB_USHORT uiLocals, unsigned char ucParams )
+HB_EXPORT int hb_vmsh_frame( int iLocals, int iParams )
 {
    HB_STACK_TLS_PRELOAD
-   hb_vmFrame( uiLocals, ucParams );
+   hb_vmFrame( ( HB_USHORT ) iLocals, ( unsigned char ) iParams );
    return ( int ) hb_stackGetActionRequest();
 }
 
 /* calls */
 
-HB_EXPORT int hb_vmsh_function( HB_USHORT uiParams )
+HB_EXPORT int hb_vmsh_function( int iParams )
 {
    HB_STACK_TLS_PRELOAD
    hb_itemSetNil( hb_stackReturnItem() );
-   hb_vmProc( uiParams );
+   hb_vmProc( ( HB_USHORT ) iParams );
    hb_stackPushReturn();
    return ( int ) hb_stackGetActionRequest();
 }
 
-HB_EXPORT int hb_vmsh_do( HB_USHORT uiParams )
+HB_EXPORT int hb_vmsh_do( int iParams )
 {
    HB_STACK_TLS_PRELOAD
-   hb_vmProc( uiParams );
+   hb_vmProc( ( HB_USHORT ) iParams );
    return ( int ) hb_stackGetActionRequest();
 }
 
