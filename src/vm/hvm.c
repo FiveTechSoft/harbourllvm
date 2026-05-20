@@ -12623,3 +12623,305 @@ void _hb_forceLinkMain()
    HB_FORCE_LINK_MAIN();
 }
 #endif
+
+/* -----------------------------------------------------------------------
+ * Harbour VM op shim for the straight-line LLVM backend.
+ *
+ * Each function replicates exactly one case of the hb_vmExecute() switch
+ * and returns the current action request (0 = continue, non-zero = unwind).
+ * They live here so they can call the static op functions above.
+ * ----------------------------------------------------------------------- */
+
+#include "hbvmsh.h"
+
+/* literals */
+
+HB_EXPORT int hb_vmsh_pushnil( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_stackAllocItem()->type = HB_IT_NIL;
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushlogical( HB_BOOL fValue )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pItem = hb_stackAllocItem();
+
+   pItem->type = HB_IT_LOGICAL;
+   pItem->item.asLogical.value = fValue;
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushint( int iValue )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushInteger( iValue );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushlong( HB_MAXINT nValue )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushHBLong( nValue );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushdouble( double dValue, int iWidth, int iDec )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushDoubleConst( dValue, iWidth, iDec );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushstring( const char * szText, HB_SIZE nLen )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushString( szText, nLen );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* locals / statics */
+
+HB_EXPORT int hb_vmsh_pushlocal( int iLocal )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushLocal( iLocal );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_poplocal( int iLocal )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPopLocal( iLocal );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushstatic( HB_USHORT uiStatic )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushStatic( uiStatic );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_popstatic( HB_USHORT uiStatic )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPopStatic( uiStatic );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* symbol push */
+
+HB_EXPORT int hb_vmsh_pushsymbol( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushSymbol( pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* arithmetic */
+
+HB_EXPORT int hb_vmsh_plus( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPlus( hb_stackItemFromTop( -2 ),
+               hb_stackItemFromTop( -2 ),
+               hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_minus( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmMinus( hb_stackItemFromTop( -2 ),
+                hb_stackItemFromTop( -2 ),
+                hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_mult( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmMult( hb_stackItemFromTop( -2 ),
+               hb_stackItemFromTop( -2 ),
+               hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_divide( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmDivide( hb_stackItemFromTop( -2 ),
+                 hb_stackItemFromTop( -2 ),
+                 hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_modulus( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmModulus( hb_stackItemFromTop( -2 ),
+                  hb_stackItemFromTop( -2 ),
+                  hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_power( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPower( hb_stackItemFromTop( -2 ),
+                hb_stackItemFromTop( -2 ),
+                hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_negate( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmNegate();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* comparisons */
+
+HB_EXPORT int hb_vmsh_equal( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmEqual();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_exactlyequal( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmExactlyEqual();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_notequal( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmNotEqual();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_less( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmLess();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_lessequal( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmLessEqual();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_greater( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmGreater();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_greaterequal( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmGreaterEqual();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* logical */
+
+HB_EXPORT int hb_vmsh_and( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmAnd();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_or( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmOr();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_not( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmNot();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* stack misc */
+
+HB_EXPORT int hb_vmsh_pop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_duplicate( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmDuplicate();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* frame / parameters */
+
+HB_EXPORT int hb_vmsh_frame( HB_USHORT uiLocals, unsigned char ucParams )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmFrame( uiLocals, ucParams );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* calls */
+
+HB_EXPORT int hb_vmsh_function( HB_USHORT uiParams )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_itemSetNil( hb_stackReturnItem() );
+   hb_vmProc( uiParams );
+   hb_stackPushReturn();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_do( HB_USHORT uiParams )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmProc( uiParams );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* return value */
+
+HB_EXPORT int hb_vmsh_retvalue( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_stackPopReturn();
+   hb_stackReturnItem()->type &= ~HB_IT_MEMOFLAG;
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* conditional jump helper */
+
+HB_EXPORT int hb_vmsh_poplogical( HB_BOOL * pfValue )
+{
+   HB_STACK_TLS_PRELOAD
+   *pfValue = hb_vmPopLogical();
+   return ( int ) hb_stackGetActionRequest();
+}
+
