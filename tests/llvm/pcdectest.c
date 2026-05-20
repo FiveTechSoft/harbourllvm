@@ -23,8 +23,8 @@
 
 /* Minimal stubs for hb_xgrab / hb_xfree so this test compiles standalone
  * without linking the full Harbour VM library. */
-void * hb_xgrab( unsigned long nSize )   { return malloc( nSize ); }
-void   hb_xfree( void * pMem )          { free( pMem ); }
+void * hb_xgrab( HB_SIZE nSize )         { return malloc( ( size_t ) nSize ); }
+void   hb_xfree( void * pMem )           { free( pMem ); }
 
 int main( void )
 {
