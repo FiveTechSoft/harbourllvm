@@ -80,6 +80,60 @@ for prg in tests/llvm/*.prg; do
       fi
    fi
 
+   # --- 3b. straight-line / fallback assertion ---
+   # For non-fallback programs: the IR must use hb_vmsh_ shims and HB_FUN_MAIN
+   # must contain no "call void @hb_vmExecute" (i.e. it was fully straight-lined).
+   # For "fallback": HB_FUN_MAIN must still route through hb_vmExecute.
+   #
+   # We extract the HB_FUN_MAIN body with awk (from the define line to the
+   # closing '}' at column 0) and grep within that excerpt.
+   status_sl="ok"; sl_note=""
+   if [ "$status_ir" = "ok" ] && [ -f "$OUT/${name}_ll.ll" ]; then
+      # Extract the body of HB_FUN_MAIN (or HB_FUN_<NAME> for the primary fn)
+      main_body="$(awk '/^define.*@HB_FUN_MAIN\(\)/{found=1} found{print} found && /^\}$/{exit}' \
+                      "$OUT/${name}_ll.ll")"
+      if [ "$name" = "fallback" ]; then
+         # fallback.prg: expect hb_vmExecute call inside HB_FUN_MAIN
+         if echo "$main_body" | grep -q "call void @hb_vmExecute"; then
+            sl_note="fallback: hb_vmExecute call present in HB_FUN_MAIN (expected)"
+         else
+            status_sl="FAIL"
+            sl_note="fallback: expected hb_vmExecute in HB_FUN_MAIN but not found"
+         fi
+      else
+         # straight-line programs: must use hb_vmsh_ and must NOT call hb_vmExecute
+         # in HB_FUN_MAIN (note: the 'declare' line is fine — we check 'call void').
+         # Use grep -q (quiet, boolean) to avoid the "grep -c with || echo 0" trap:
+         # grep -c exits 1 when count is 0, which would trigger || echo 0 and produce "0\n0".
+         if grep -q "hb_vmsh_" "$OUT/${name}_ll.ll" 2>/dev/null; then
+            has_vmsh=1
+         else
+            has_vmsh=0
+         fi
+         if echo "$main_body" | grep -q "call void @hb_vmExecute" 2>/dev/null; then
+            has_fallback=1
+         else
+            has_fallback=0
+         fi
+         if [ "$has_vmsh" -gt 0 ] && [ "$has_fallback" -eq 0 ]; then
+            sl_note="straight-line: hb_vmsh_ used, no hb_vmExecute in HB_FUN_MAIN"
+         elif [ "$has_fallback" -gt 0 ]; then
+            # Whole-function fallback triggered — acceptable (unsupported opcodes)
+            # but we report it as a note rather than a failure
+            sl_note="note: HB_FUN_MAIN fell back to hb_vmExecute (unsupported opcodes)"
+         else
+            status_sl="FAIL"
+            sl_note="straight-line: neither hb_vmsh_ nor hb_vmExecute found in IR"
+         fi
+      fi
+      echo "  straight-line : $status_sl${sl_note:+ — $sl_note}"
+      # A broken fallback assertion is a hard failure
+      if [ "$status_sl" = "FAIL" ]; then
+         [ "$status_ir" = "ok" ] && status_ir="FAIL"
+         note="$sl_note"
+      fi
+   fi
+
    # --- 1. C backend reference build (gtstd: non-interactive, CI-safe) ---
    if [ "$status_ir" = "ok" ]; then
       if ! "$HBMK2" -q -gtstd -o"$OUT/${name}_c" "$prg" \
@@ -133,6 +187,19 @@ for prg in tests/llvm/*.prg; do
 
    bcl_ir="bad"; [ "$status_ir" = "ok" ] && bcl_ir="good"
    bcl_run="bad"; [ "$status_run" = "ok" ] && bcl_run="good"
+   bcl_sl="bad"
+   sl_label="SL n/a"
+   if [ -n "$sl_note" ]; then
+      if echo "$sl_note" | grep -q "straight-line:"; then
+         bcl_sl="good"; sl_label="SL ok"
+      elif echo "$sl_note" | grep -q "fallback:.*expected"; then
+         bcl_sl="good"; sl_label="fallback ok"
+      elif echo "$sl_note" | grep -q "note:.*fell back"; then
+         bcl_sl="warn"; sl_label="SL partial"
+      else
+         sl_label="SL FAIL"
+      fi
+   fi
 
    dlink=""
    [ -f "$OUT/${name}_ll.ll" ] && \
@@ -140,6 +207,9 @@ for prg in tests/llvm/*.prg; do
    diffblock=""
    [ -n "$diff_txt" ] && \
       diffblock="<div class=\"pane diff\"><h3>Output diff (C vs LLVM)</h3><pre>${diff_txt}</pre></div>"
+   slblock=""
+   [ -n "$sl_note" ] && \
+      slblock="<p class=\"slnote\">${sl_note}</p>"
 
    cards="${cards}
    <article class=\"test ${ok}\" id=\"${name}\">
@@ -147,7 +217,9 @@ for prg in tests/llvm/*.prg; do
        <h2>${name}.prg</h2>
        <span class=\"badge ${bcl_ir}\">IR ${status_ir}</span>
        <span class=\"badge ${bcl_run}\">run ${status_run}</span>
+       <span class=\"badge ${bcl_sl}\">${sl_label}</span>
      </header>
+     ${slblock}
      ${note:+<p class=\"note\">${note}</p>}
      <div class=\"grid\">
        <div class=\"pane src\">
@@ -211,7 +283,9 @@ cat > "$OUT/index.html" <<HTML
         text-transform:uppercase;letter-spacing:.03em}
  .badge.good{background:rgba(46,160,67,.2);color:#3fb950}
  .badge.bad{background:rgba(218,54,51,.2);color:#f85149}
+ .badge.warn{background:rgba(210,153,34,.2);color:#d4a017}
  .note{color:#f85149;font-weight:600;margin:.6rem 0 0}
+ .slnote{color:#8b949e;font-size:.85rem;margin:.4rem 0 0;font-style:italic}
  .grid{display:grid;grid-template-columns:5fr 7fr;gap:1rem;margin-top:.9rem}
  @media(max-width:760px){.grid{grid-template-columns:1fr}}
  .pane h3{font-size:.78rem;text-transform:uppercase;letter-spacing:.05em;
@@ -248,8 +322,8 @@ ${cards}
 <footer>
  Harbour LLVM backend &mdash;
  <a href="https://github.com/FiveTechSoft/harbourllvm">github.com/FiveTechSoft/harbourllvm</a><br>
- Plan 1 of 3: IR text emitter. Plan 2 embeds libLLVM + lld; Plan 3 removes the
- interpreter loop. See <code>docs/superpowers/</code>.
+ Plan 1: IR text emitter. Plan 2: embeds libLLVM + lld. Plan 3: straight-line IR,
+ removes the interpreter dispatch loop. See <code>docs/superpowers/</code>.
 </footer>
 
 </div>
