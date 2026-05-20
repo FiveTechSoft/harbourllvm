@@ -55,6 +55,7 @@
 #define _HB_API_INTERNAL_
 #include "hbcomp.h"
 #include "hb_llvmobj.h"
+#include "hb_pcdec.h"
 
 #include <string.h>
 
@@ -139,6 +140,664 @@ static HB_ULONG hb_llvmScopeFlags( HB_COMP_DECL, PHB_HSYMBOL pSym )
 }
 
 /* -------------------------------------------------------------------------
+ * Straight-line IR helpers (Task 4).
+ *
+ * The emission is split into two passes so that string-constant global
+ * declarations (which must be at module scope in LLVM IR) are emitted
+ * BEFORE the function body that references them.
+ *
+ * Pass A — hb_llvmSLPrecheck:
+ *   Runs hb_pcodeAnalyze and returns HB_TRUE iff the function can be
+ *   straight-lined (analysis OK + fAllSupported).  Stores the map in
+ *   *pMap (caller frees pMap->abLeader on HB_TRUE).
+ *
+ * Pass B — hb_llvmSLEmitStrings:
+ *   Emits @.sl.str.<n> private constants to yyc for every PUSHSTR* opcode
+ *   in the function.  Updates *piStrIdx.  Safe to call only when
+ *   hb_llvmSLPrecheck returned HB_TRUE.
+ *
+ * Pass C — hb_llvmSLEmitBody:
+ *   Emits the actual function body (entry:, i<off>: blocks, epilogue:).
+ *   The string-constant indices used here must match what Pass B emitted
+ *   (the caller passes the same *piStrIdx value at the start of the function).
+ * ------------------------------------------------------------------------- */
+
+/* Pass A */
+static HB_BOOL hb_llvmSLPrecheck( PHB_HFUNC pFunc, HB_PCMAP * pMap )
+{
+   if( ! hb_pcodeAnalyze( pFunc->pCode, pFunc->nPCodePos, pMap ) )
+      return HB_FALSE;
+   if( ! pMap->fAllSupported )
+   {
+      hb_xfree( pMap->abLeader );
+      pMap->abLeader = NULL;
+      return HB_FALSE;
+   }
+   return HB_TRUE;
+}
+
+/* Pass B — walk pcode, emit @.sl.str.<n> globals.
+ * If yyc is NULL, only advances *piStrIdx (dry-run to count strings).
+ * If yyc is non-NULL, emits the constants to the file. */
+static void hb_llvmSLEmitStrings( FILE * yyc, PHB_HFUNC pFunc,
+                                   int * piStrIdx )
+{
+   const HB_BYTE * pCode   = pFunc->pCode;
+   HB_SIZE         nPCSize = pFunc->nPCodePos;
+   HB_SIZE         pos     = 0;
+
+   while( pos < nPCSize )
+   {
+      HB_BYTE op  = pCode[ pos ];
+      HB_SIZE len = hb_pcodeInstrLen( &pCode[ pos ] );
+
+      switch( op )
+      {
+         case HB_P_PUSHSTRSHORT:
+         {
+            if( yyc )
+            {
+               HB_SIZE nStr = ( HB_SIZE ) pCode[ pos + 1 ];
+               HB_SIZE k;
+               fprintf( yyc, "@.sl.str.%d = private constant [%lu x i8] c\"",
+                        *piStrIdx, ( unsigned long ) nStr );
+               for( k = 0; k < nStr - 1; ++k )
+                  hb_llvmEmitByte( yyc, pCode[ pos + 2 + k ] );
+               fprintf( yyc, "\\00\"\n" );
+            }
+            ( *piStrIdx )++;
+            break;
+         }
+         case HB_P_PUSHSTR:
+         {
+            if( yyc )
+            {
+               HB_SIZE nStr = ( HB_SIZE ) HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+               HB_SIZE k;
+               fprintf( yyc, "@.sl.str.%d = private constant [%lu x i8] c\"",
+                        *piStrIdx, ( unsigned long ) nStr );
+               for( k = 0; k < nStr - 1; ++k )
+                  hb_llvmEmitByte( yyc, pCode[ pos + 3 + k ] );
+               fprintf( yyc, "\\00\"\n" );
+            }
+            ( *piStrIdx )++;
+            break;
+         }
+         case HB_P_PUSHSTRLARGE:
+         {
+            if( yyc )
+            {
+               HB_SIZE nStr = HB_PCODE_MKUINT24( &pCode[ pos + 1 ] );
+               HB_SIZE k;
+               fprintf( yyc, "@.sl.str.%d = private constant [%lu x i8] c\"",
+                        *piStrIdx, ( unsigned long ) nStr );
+               for( k = 0; k < nStr - 1; ++k )
+                  hb_llvmEmitByte( yyc, pCode[ pos + 4 + k ] );
+               fprintf( yyc, "\\00\"\n" );
+            }
+            ( *piStrIdx )++;
+            break;
+         }
+         default:
+            break;
+      }
+      pos += len;
+   }
+}
+
+/* Pass C — emit the function body.
+ * iStrBase is the value of *piStrIdx at the start of this function's
+ * string emission (i.e. the index of the first @.sl.str.<n> emitted for
+ * this function by Pass B). */
+static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
+                                int iSymCount, int iStrBase )
+{
+   const HB_BYTE * pCode   = pFunc->pCode;
+   HB_SIZE         nPCSize = pFunc->nPCodePos;
+   HB_SIZE         pos;
+   HB_SIZE         len;
+   HB_SIZE         nextOff;
+   int             iLocalStr = iStrBase;  /* tracks @.sl.str index per opcode */
+
+   /* -----------------------------------------------------------------------
+    * entry: block — emit all alloca slots for conditional-jump logicals first
+    * (LLVM requires all allocas to dominate their uses → put them in entry).
+    * --------------------------------------------------------------------- */
+   fprintf( yyc, "entry:\n" );
+
+   pos = 0;
+   while( pos < nPCSize )
+   {
+      HB_BYTE op = pCode[ pos ];
+      len = hb_pcodeInstrLen( &pCode[ pos ] );
+
+      switch( op )
+      {
+         case HB_P_JUMPFALSENEAR:
+         case HB_P_JUMPFALSE:
+         case HB_P_JUMPFALSEFAR:
+         case HB_P_JUMPTRUENEAR:
+         case HB_P_JUMPTRUE:
+         case HB_P_JUMPTRUEFAR:
+            fprintf( yyc, "  %%jp%lu = alloca i32\n", ( unsigned long ) pos );
+            break;
+         default:
+            break;
+      }
+      pos += len;
+   }
+
+   fprintf( yyc, "  br label %%i0\n" );
+
+   /* -----------------------------------------------------------------------
+    * Emit one block per instruction.
+    * --------------------------------------------------------------------- */
+   pos = 0;
+   while( pos < nPCSize )
+   {
+      HB_BYTE op = pCode[ pos ];
+      len     = hb_pcodeInstrLen( &pCode[ pos ] );
+      nextOff = pos + len;
+
+      fprintf( yyc, "i%lu:\n", ( unsigned long ) pos );
+
+      switch( op )
+      {
+         case HB_P_LINE:
+         case HB_P_NOOP:
+            if( nextOff < nPCSize )
+               fprintf( yyc, "  br label %%i%lu\n", ( unsigned long ) nextOff );
+            else
+               fprintf( yyc, "  br label %%epilogue\n" );
+            break;
+
+         case HB_P_ENDPROC:
+            fprintf( yyc, "  br label %%epilogue\n" );
+            break;
+
+         case HB_P_JUMP:
+         case HB_P_JUMPNEAR:
+         case HB_P_JUMPFAR:
+         {
+            HB_ISIZ disp   = hb_pcodeJumpOffset( &pCode[ pos ] );
+            HB_ISIZ target = ( HB_ISIZ ) pos + disp;
+            fprintf( yyc, "  br label %%i%ld\n", ( long ) target );
+            break;
+         }
+
+         case HB_P_JUMPFALSENEAR:
+         case HB_P_JUMPFALSE:
+         case HB_P_JUMPFALSEFAR:
+         {
+            HB_ISIZ disp   = hb_pcodeJumpOffset( &pCode[ pos ] );
+            HB_ISIZ target = ( HB_ISIZ ) pos + disp;
+            fprintf( yyc,
+                     "  %%rjp%lu = call i32 @hb_vmsh_poplogical(i32* %%jp%lu)\n"
+                     "  %%cjp%lu = icmp ne i32 %%rjp%lu, 0\n"
+                     "  br i1 %%cjp%lu, label %%epilogue, label %%jpdone%lu\n"
+                     "jpdone%lu:\n"
+                     "  %%vjp%lu = load i32, i32* %%jp%lu\n"
+                     "  %%bjp%lu = icmp ne i32 %%vjp%lu, 0\n"
+                     "  br i1 %%bjp%lu, label %%i%lu, label %%i%ld\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nextOff,  /* not taken (value is TRUE)  */
+                     ( long ) target             /* taken    (value is FALSE)  */
+                     );
+            break;
+         }
+
+         case HB_P_JUMPTRUENEAR:
+         case HB_P_JUMPTRUE:
+         case HB_P_JUMPTRUEFAR:
+         {
+            HB_ISIZ disp   = hb_pcodeJumpOffset( &pCode[ pos ] );
+            HB_ISIZ target = ( HB_ISIZ ) pos + disp;
+            fprintf( yyc,
+                     "  %%rjp%lu = call i32 @hb_vmsh_poplogical(i32* %%jp%lu)\n"
+                     "  %%cjp%lu = icmp ne i32 %%rjp%lu, 0\n"
+                     "  br i1 %%cjp%lu, label %%epilogue, label %%jpdone%lu\n"
+                     "jpdone%lu:\n"
+                     "  %%vjp%lu = load i32, i32* %%jp%lu\n"
+                     "  %%bjp%lu = icmp ne i32 %%vjp%lu, 0\n"
+                     "  br i1 %%bjp%lu, label %%i%ld, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos,
+                     ( long ) target,            /* taken    (value is TRUE)   */
+                     ( unsigned long ) nextOff   /* not taken (value is FALSE) */
+                     );
+            break;
+         }
+
+         case HB_P_PUSHNIL:
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushnil()\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+
+         case HB_P_TRUE:
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushlogical(i32 1)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+
+         case HB_P_FALSE:
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushlogical(i32 0)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+
+         case HB_P_ZERO:
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 0)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+
+         case HB_P_ONE:
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 1)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+
+         case HB_P_PUSHBYTE:
+         {
+            int iVal = ( int ) ( signed char ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, iVal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHINT:
+         {
+            int iVal = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, iVal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHLONG:
+         {
+            HB_LONG nVal = HB_PCODE_MKLONG( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushlong(i64 %ld)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( long ) nVal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHLONGLONG:
+         {
+            HB_LONGLONG nVal = HB_PCODE_MKLONGLONG( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushlong(i64 %lld)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( long long ) nVal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHDOUBLE:
+         {
+            double    dVal = HB_PCODE_MKDOUBLE( &pCode[ pos + 1 ] );
+            HB_U64    uBits;
+            int       iW   = ( int ) *( const unsigned char * ) &pCode[ pos + 1 + sizeof( double ) ];
+            int       iD   = ( int ) *( const unsigned char * ) &pCode[ pos + 2 + sizeof( double ) ];
+            /* Use memcpy to type-pun safely (avoids strict-aliasing UB). */
+            memcpy( &uBits, &dVal, sizeof( uBits ) );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushdouble(double 0x%016llX, i32 %d, i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos,
+                     ( unsigned long long ) uBits,
+                     iW, iD,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         /* String push — use the @.sl.str.<n> constant emitted in Pass B. */
+         case HB_P_PUSHSTRSHORT:
+         {
+            HB_SIZE nStr  = ( HB_SIZE ) pCode[ pos + 1 ];
+            HB_SIZE nPush = nStr > 0 ? nStr - 1 : 0;
+            int     iIdx  = iLocalStr++;
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushstring("
+                     "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
+                     "i64 %lu)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nStr, ( unsigned long ) nStr, iIdx,
+                     ( unsigned long ) nPush,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHSTR:
+         {
+            HB_SIZE nStr  = ( HB_SIZE ) HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            HB_SIZE nPush = nStr > 0 ? nStr - 1 : 0;
+            int     iIdx  = iLocalStr++;
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushstring("
+                     "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
+                     "i64 %lu)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nStr, ( unsigned long ) nStr, iIdx,
+                     ( unsigned long ) nPush,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHSTRLARGE:
+         {
+            HB_SIZE nSize = HB_PCODE_MKUINT24( &pCode[ pos + 1 ] );
+            HB_SIZE nPush = nSize > 0 ? nSize - 1 : 0;
+            int     iIdx  = iLocalStr++;
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushstring("
+                     "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
+                     "i64 %lu)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nSize, ( unsigned long ) nSize, iIdx,
+                     ( unsigned long ) nPush,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHLOCAL:
+         {
+            int iLocal = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushlocal(i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, iLocal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHLOCALNEAR:
+         {
+            int iLocal = ( int ) ( signed char ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushlocal(i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, iLocal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_POPLOCAL:
+         {
+            int iLocal = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_poplocal(i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, iLocal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_POPLOCALNEAR:
+         {
+            int iLocal = ( int ) ( signed char ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_poplocal(i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, iLocal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHSTATIC:
+         {
+            HB_USHORT uiStatic = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushstatic(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned ) uiStatic,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_POPSTATIC:
+         {
+            HB_USHORT uiStatic = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_popstatic(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned ) uiStatic,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHSYM:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         /* PUSHFUNCSYM: push symbol + push NIL self slot (two shim calls). */
+         case HB_P_PUSHFUNCSYM:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            /* Sub-block a: push the symbol. */
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%ipfs%lua\n"
+                     "ipfs%lua:\n"
+                     "  %%r%lub = call i32 @hb_vmsh_pushnil()\n"
+                     "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
+                     "  br i1 %%c%lub, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_PUSHSYMNEAR:
+         {
+            unsigned uiSym = ( unsigned ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+#define HB_EMIT_NOARG_SHIM( nm ) \
+            fprintf( yyc, \
+                     "  %%r%lu = call i32 @hb_vmsh_" nm "()\n" \
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n" \
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n", \
+                     ( unsigned long ) pos, \
+                     ( unsigned long ) pos, ( unsigned long ) pos, \
+                     ( unsigned long ) pos, ( unsigned long ) nextOff )
+
+         case HB_P_PLUS:           HB_EMIT_NOARG_SHIM( "plus" );           break;
+         case HB_P_MINUS:          HB_EMIT_NOARG_SHIM( "minus" );          break;
+         case HB_P_MULT:           HB_EMIT_NOARG_SHIM( "mult" );           break;
+         case HB_P_DIVIDE:         HB_EMIT_NOARG_SHIM( "divide" );         break;
+         case HB_P_MODULUS:        HB_EMIT_NOARG_SHIM( "modulus" );        break;
+         case HB_P_POWER:          HB_EMIT_NOARG_SHIM( "power" );          break;
+         case HB_P_NEGATE:         HB_EMIT_NOARG_SHIM( "negate" );         break;
+         case HB_P_EQUAL:          HB_EMIT_NOARG_SHIM( "equal" );          break;
+         case HB_P_EXACTLYEQUAL:   HB_EMIT_NOARG_SHIM( "exactlyequal" );   break;
+         case HB_P_NOTEQUAL:       HB_EMIT_NOARG_SHIM( "notequal" );       break;
+         case HB_P_LESS:           HB_EMIT_NOARG_SHIM( "less" );           break;
+         case HB_P_LESSEQUAL:      HB_EMIT_NOARG_SHIM( "lessequal" );      break;
+         case HB_P_GREATER:        HB_EMIT_NOARG_SHIM( "greater" );        break;
+         case HB_P_GREATEREQUAL:   HB_EMIT_NOARG_SHIM( "greaterequal" );   break;
+         case HB_P_AND:            HB_EMIT_NOARG_SHIM( "and" );            break;
+         case HB_P_OR:             HB_EMIT_NOARG_SHIM( "or" );             break;
+         case HB_P_NOT:            HB_EMIT_NOARG_SHIM( "not" );            break;
+         case HB_P_POP:            HB_EMIT_NOARG_SHIM( "pop" );            break;
+         case HB_P_DUPLICATE:      HB_EMIT_NOARG_SHIM( "duplicate" );      break;
+         case HB_P_RETVALUE:       HB_EMIT_NOARG_SHIM( "retvalue" );       break;
+
+#undef HB_EMIT_NOARG_SHIM
+
+         case HB_P_FRAME:
+         {
+            unsigned uiLocals = ( unsigned ) pCode[ pos + 1 ];
+            unsigned ucParams = ( unsigned ) pCode[ pos + 2 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_frame(i32 %u, i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, uiLocals, ucParams,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_FUNCTION:
+         {
+            HB_USHORT uiParams = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_function(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned ) uiParams,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_FUNCTIONSHORT:
+         {
+            unsigned uiParams = ( unsigned ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_function(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, uiParams,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_DO:
+         {
+            HB_USHORT uiParams = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_do(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, ( unsigned ) uiParams,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         case HB_P_DOSHORT:
+         {
+            unsigned uiParams = ( unsigned ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_do(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%i%lu\n",
+                     ( unsigned long ) pos, uiParams,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, ( unsigned long ) nextOff );
+            break;
+         }
+
+         default:
+            /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
+            break;
+      }
+
+      pos = nextOff;
+   }
+
+   fprintf( yyc, "epilogue:\n" );
+   fprintf( yyc, "  ret void\n" );
+}
+
+/* -------------------------------------------------------------------------
  * Main entry point.
  * ------------------------------------------------------------------------- */
 void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
@@ -149,6 +808,7 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    FILE *      yyc;
    int         iSymCount;
    int         iSymIdx;
+   int         iStrIdx;   /* module-wide counter for @.sl.str.<n> globals */
 
    /* -----------------------------------------------------------------------
     * Open output file.
@@ -174,6 +834,43 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare void @hb_vmExecute(i8*, %%HB_SYMB*)\n" );
    fprintf( yyc, "declare %%HB_SYMB* @hb_vmProcessSymbols("
                  "%%HB_SYMB*, i16, i8*, i32, i16)\n" );
+
+   /* Shim declarations for the straight-line emitter (Task 4). */
+   fprintf( yyc, "declare i32 @hb_vmsh_pushnil()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushlogical(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushint(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushlong(i64)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushdouble(double, i32, i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushstring(i8*, i64)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushlocal(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_poplocal(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushstatic(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_popstatic(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushsymbol(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_plus()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_minus()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_mult()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_divide()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_modulus()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_power()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_negate()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_equal()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_exactlyequal()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_notequal()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_less()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_lessequal()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_greater()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_greaterequal()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_and()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_or()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_not()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_duplicate()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_frame(i32, i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_function(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_do(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_retvalue()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_poplogical(i32*)\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
@@ -336,15 +1033,47 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "]\n\n" );
 
    /* -----------------------------------------------------------------------
-    * Function definitions — one per real function.
+    * Straight-line string constants — Pass B.
+    * Pre-emit all @.sl.str.<n> globals BEFORE the function definitions so
+    * they are at module scope (LLVM IR requires global defs before use sites).
+    * Only emit for functions that pass hb_llvmSLPrecheck(); special functions
+    * (pInitFunc / pLineFunc) always use the fallback.
     * --------------------------------------------------------------------- */
-   pFunc = HB_COMP_PARAM->functions.pFirst;
+   iStrIdx = 0;
+   pFunc   = HB_COMP_PARAM->functions.pFirst;
+   while( pFunc )
+   {
+      if( ( pFunc->funFlags & HB_FUNF_FILE_DECL ) == 0 &&
+          pFunc != HB_COMP_PARAM->pInitFunc &&
+          pFunc != HB_COMP_PARAM->pLineFunc )
+      {
+         HB_PCMAP map;
+         if( hb_llvmSLPrecheck( pFunc, &map ) )
+         {
+            hb_llvmSLEmitStrings( yyc, pFunc, &iStrIdx );
+            hb_xfree( map.abLeader );
+         }
+      }
+      pFunc = pFunc->pNext;
+   }
+   fprintf( yyc, "\n" );
+
+   /* -----------------------------------------------------------------------
+    * Function definitions — one per real function.
+    * Pass C: emit function body (straight-line or fallback).
+    * iStrIdx is reset to 0 and advanced in the same order as Pass B so that
+    * the @.sl.str.<n> indices match.
+    * --------------------------------------------------------------------- */
+   iStrIdx = 0;
+   pFunc   = HB_COMP_PARAM->functions.pFirst;
    while( pFunc )
    {
       if( ( pFunc->funFlags & HB_FUNF_FILE_DECL ) == 0 )
       {
-         const char * pFuncLLVMName;  /* plain C string when a special name applies */
+         const char * pFuncLLVMName;
          HB_BOOL      bSpecial;
+         HB_BOOL      bStraightLine = HB_FALSE;
+         int          iStrBase      = iStrIdx;
 
          if( pFunc == HB_COMP_PARAM->pInitFunc )
          {
@@ -362,6 +1091,20 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
             bSpecial = HB_FALSE;
          }
 
+         /* For non-special functions, check if straight-line is possible and
+          * advance iStrIdx over this function's strings (must mirror Pass B). */
+         if( ! bSpecial )
+         {
+            HB_PCMAP map;
+            if( hb_llvmSLPrecheck( pFunc, &map ) )
+            {
+               bStraightLine = HB_TRUE;
+               /* Count strings to advance iStrIdx to the next function's base. */
+               hb_llvmSLEmitStrings( NULL, pFunc, &iStrIdx );
+               hb_xfree( map.abLeader );
+            }
+         }
+
          /* define line */
          if( bSpecial )
             fprintf( yyc, "define void @%s() {\n", pFuncLLVMName );
@@ -372,28 +1115,38 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
             fprintf( yyc, "() {\n" );
          }
 
-         fprintf( yyc, "  %%s = load %%HB_SYMB*, %%HB_SYMB** @symbols\n" );
-
-         /* call line — pcode array reference must match the global name emitted above */
-         if( bSpecial )
+         if( bStraightLine )
          {
-            fprintf( yyc,
-                     "  call void @hb_vmExecute(i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.%s, i32 0, i32 0), %%HB_SYMB* %%s)\n",
-                     ( unsigned long ) pFunc->nPCodePos,
-                     ( unsigned long ) pFunc->nPCodePos,
-                     pFuncLLVMName );
+            /* Straight-line body — no %s load needed; shims do not use it. */
+            hb_llvmSLEmitBody( yyc, pFunc, iSymCount, iStrBase );
          }
          else
          {
-            fprintf( yyc,
-                     "  call void @hb_vmExecute(i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
-                     ( unsigned long ) pFunc->nPCodePos,
-                     ( unsigned long ) pFunc->nPCodePos );
-            hb_llvmEmitFuncName( yyc, pFunc->szName );
-            fprintf( yyc, ", i32 0, i32 0), %%HB_SYMB* %%s)\n" );
+            /* Fallback: load @symbols and call hb_vmExecute. */
+            fprintf( yyc, "  %%s = load %%HB_SYMB*, %%HB_SYMB** @symbols\n" );
+
+            if( bSpecial )
+            {
+               fprintf( yyc,
+                        "  call void @hb_vmExecute(i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.%s, i32 0, i32 0), %%HB_SYMB* %%s)\n",
+                        ( unsigned long ) pFunc->nPCodePos,
+                        ( unsigned long ) pFunc->nPCodePos,
+                        pFuncLLVMName );
+            }
+            else
+            {
+               fprintf( yyc,
+                        "  call void @hb_vmExecute(i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
+                        ( unsigned long ) pFunc->nPCodePos,
+                        ( unsigned long ) pFunc->nPCodePos );
+               hb_llvmEmitFuncName( yyc, pFunc->szName );
+               fprintf( yyc, ", i32 0, i32 0), %%HB_SYMB* %%s)\n" );
+            }
+
+            fprintf( yyc, "  ret void\n" );
          }
 
-         fprintf( yyc, "  ret void\n}\n\n" );
+         fprintf( yyc, "}\n\n" );
       }
       pFunc = pFunc->pNext;
    }
