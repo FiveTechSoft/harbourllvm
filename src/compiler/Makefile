@@ -27,6 +27,7 @@ C_SOURCES := \
    genllvm.c \
    genhrb.c \
    hb_llvmstub.c \
+   hb_pcdec.c \
    hbcmplib.c \
    hbcomp.c \
    hbdbginf.c \
