@@ -12663,7 +12663,11 @@ HB_EXPORT int hb_vmsh_pushint( int iValue )
 HB_EXPORT int hb_vmsh_pushlong( HB_MAXINT nValue )
 {
    HB_STACK_TLS_PRELOAD
-   hb_vmPushHBLong( nValue );
+#if HB_VMINT_MAX >= INT32_MAX
+   hb_vmPushIntegerConst( ( int ) nValue );
+#else
+   hb_vmPushLongConst( ( long ) nValue );
+#endif
    return ( int ) hb_stackGetActionRequest();
 }
 
@@ -12674,6 +12678,11 @@ HB_EXPORT int hb_vmsh_pushdouble( double dValue, int iWidth, int iDec )
    return ( int ) hb_stackGetActionRequest();
 }
 
+/* NOTE: hb_vmPushString() is used here deliberately (copying variant) rather
+ * than hb_vmPushStringPcode().  The straight-line LLVM backend passes a pointer
+ * to an IR string constant; there is no pcode buffer keeping the storage alive,
+ * so the VM must own a copy.  Do not replace this with the non-copying variant.
+ */
 HB_EXPORT int hb_vmsh_pushstring( const char * szText, HB_SIZE nLen )
 {
    HB_STACK_TLS_PRELOAD
