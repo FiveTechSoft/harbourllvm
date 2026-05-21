@@ -65,6 +65,12 @@
  *   HB_P_PUSHALIAS, HB_P_PUSHALIASEDFIELD, HB_P_PUSHALIASEDFIELDNEAR,
  *   HB_P_PUSHALIASEDVAR, HB_P_PUSHFIELD, HB_P_PUSHMEMVAR,
  *   HB_P_PUSHMEMVARREF, HB_P_PUSHVARIABLE, HB_P_SWAPALIAS
+ *
+ * Group D additions (OOP messages):
+ *   HB_P_FUNCPTR, HB_P_MESSAGE, HB_P_PUSHSELF,
+ *   HB_P_SEND, HB_P_SENDSHORT,
+ *   HB_P_WITHOBJECTSTART, HB_P_WITHOBJECTMESSAGE, HB_P_WITHOBJECTEND,
+ *   HB_P_PUSHOVARREF
  */
 
 /* Compile-time size check — must have exactly HB_P_LAST_PCODE entries. */
@@ -86,7 +92,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 11 HB_P_FUNCTION       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 12 HB_P_FUNCTIONSHORT  */ { HB_PCK_FIXED,    2,  HB_TRUE  },
    /* 13 HB_P_FRAME          */ { HB_PCK_FIXED,    3,  HB_TRUE  },
-   /* 14 HB_P_FUNCPTR        */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 14 HB_P_FUNCPTR        */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 15 HB_P_GREATER        */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 16 HB_P_GREATEREQUAL   */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 17 HB_P_DEC            */ { HB_PCK_FIXED,    1,  HB_TRUE  },
@@ -120,7 +126,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 45 HB_P_MACROPUSHALIASED*/{HB_PCK_FIXED,     2,  HB_FALSE },
    /* 46 HB_P_MACROSYMBOL    */ { HB_PCK_FIXED,    1,  HB_FALSE },
    /* 47 HB_P_MACROTEXT      */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 48 HB_P_MESSAGE        */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 48 HB_P_MESSAGE        */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 49 HB_P_MINUS          */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 50 HB_P_MODULUS        */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 51 HB_P_MODULENAME     */ { HB_PCK_UNKNOWN,  0,  HB_FALSE }, /* null-terminated string at pCode+1 */
@@ -174,7 +180,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 99 HB_P_PUSHMEMVARREF  */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 100 HB_P_PUSHNIL       */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 101 HB_P_PUSHDOUBLE    */ { HB_PCK_FIXED,   11,  HB_TRUE  }, /* 3 + sizeof(double)=8 */
-   /* 102 HB_P_PUSHSELF      */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 102 HB_P_PUSHSELF      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 103 HB_P_PUSHSTATIC    */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 104 HB_P_PUSHSTATICREF */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 105 HB_P_PUSHSTR       */ { HB_PCK_STR2,     0,  HB_TRUE  }, /* 2-byte length prefix */
@@ -183,8 +189,8 @@ const HB_PCINFO hb_pcInfo[] =
    /* 108 HB_P_PUSHSYMNEAR   */ { HB_PCK_FIXED,    2,  HB_TRUE  },
    /* 109 HB_P_PUSHVARIABLE  */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 110 HB_P_RETVALUE      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 111 HB_P_SEND          */ { HB_PCK_FIXED,    3,  HB_FALSE }, /* instr is 3 bytes; interpreter may eat following POP */
-   /* 112 HB_P_SENDSHORT     */ { HB_PCK_FIXED,    2,  HB_FALSE },
+   /* 111 HB_P_SEND          */ { HB_PCK_FIXED,    3,  HB_TRUE  }, /* instr is 3 bytes; interpreter may eat following POP */
+   /* 112 HB_P_SENDSHORT     */ { HB_PCK_FIXED,    2,  HB_TRUE  },
    /* 113 HB_P_SEQBEGIN      */ { HB_PCK_FIXED,    4,  HB_FALSE },
    /* 114 HB_P_SEQEND        */ { HB_PCK_FIXED,    4,  HB_FALSE }, /* 4-byte instr; interp uses operand as jump offset */
    /* 115 HB_P_SEQRECOVER    */ { HB_PCK_FIXED,    1,  HB_FALSE },
@@ -215,11 +221,11 @@ const HB_PCINFO hb_pcInfo[] =
    /* 140 HB_P_MINUSEQ       */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 141 HB_P_MULTEQ        */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 142 HB_P_DIVEQ         */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 143 HB_P_WITHOBJECTSTART*/{HB_PCK_FIXED,     1,  HB_FALSE },
-   /* 144 HB_P_WITHOBJECTMESSAGE*/{HB_PCK_FIXED,   3,  HB_FALSE },
-   /* 145 HB_P_WITHOBJECTEND */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 143 HB_P_WITHOBJECTSTART*/{HB_PCK_FIXED,     1,  HB_TRUE  },
+   /* 144 HB_P_WITHOBJECTMESSAGE*/{HB_PCK_FIXED,   3,  HB_TRUE  },
+   /* 145 HB_P_WITHOBJECTEND */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 146 HB_P_MACROSEND     */ { HB_PCK_FIXED,    3,  HB_FALSE },
-   /* 147 HB_P_PUSHOVARREF   */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 147 HB_P_PUSHOVARREF   */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 148 HB_P_ARRAYPUSHREF  */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 149 HB_P_VFRAME        */ { HB_PCK_FIXED,    3,  HB_FALSE },
    /* 150 HB_P_LARGEFRAME    */ { HB_PCK_FIXED,    4,  HB_FALSE },
