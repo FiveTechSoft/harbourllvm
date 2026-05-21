@@ -54,6 +54,10 @@
  *   HB_P_DECEQ, HB_P_INCEQ,
  *   HB_P_LOCALDEC, HB_P_LOCALINC, HB_P_LOCALINCPUSH,
  *   HB_P_LOCALADDINT, HB_P_LOCALNEARADDINT
+ *
+ * Group B additions (arrays + hashes):
+ *   HB_P_ARRAYPUSH, HB_P_ARRAYPOP, HB_P_ARRAYDIM, HB_P_ARRAYGEN,
+ *   HB_P_ARRAYPUSHREF, HB_P_HASHGEN, HB_P_PUSHAPARAMS
  */
 
 /* Compile-time size check — must have exactly HB_P_LAST_PCODE entries. */
@@ -62,10 +66,10 @@
 const HB_PCINFO hb_pcInfo[] =
 {
    /* 0  HB_P_AND            */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 1  HB_P_ARRAYPUSH      */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 2  HB_P_ARRAYPOP       */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 3  HB_P_ARRAYDIM       */ { HB_PCK_FIXED,    3,  HB_FALSE },
-   /* 4  HB_P_ARRAYGEN       */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 1  HB_P_ARRAYPUSH      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
+   /* 2  HB_P_ARRAYPOP       */ { HB_PCK_FIXED,    1,  HB_TRUE  },
+   /* 3  HB_P_ARRAYDIM       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
+   /* 4  HB_P_ARRAYGEN       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 5  HB_P_EQUAL          */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 6  HB_P_ENDBLOCK       */ { HB_PCK_FIXED,    1,  HB_FALSE },
    /* 7  HB_P_ENDPROC        */ { HB_PCK_FIXED,    1,  HB_TRUE  },
@@ -209,7 +213,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 145 HB_P_WITHOBJECTEND */ { HB_PCK_FIXED,    1,  HB_FALSE },
    /* 146 HB_P_MACROSEND     */ { HB_PCK_FIXED,    3,  HB_FALSE },
    /* 147 HB_P_PUSHOVARREF   */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 148 HB_P_ARRAYPUSHREF  */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 148 HB_P_ARRAYPUSHREF  */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 149 HB_P_VFRAME        */ { HB_PCK_FIXED,    3,  HB_FALSE },
    /* 150 HB_P_LARGEFRAME    */ { HB_PCK_FIXED,    4,  HB_FALSE },
    /* 151 HB_P_LARGEVFRAME   */ { HB_PCK_FIXED,    4,  HB_FALSE },
@@ -238,10 +242,10 @@ const HB_PCINFO hb_pcInfo[] =
    /* 174 HB_P_LOCALINC      */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 175 HB_P_LOCALINCPUSH  */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 176 HB_P_PUSHFUNCSYM   */ { HB_PCK_FIXED,    3,  HB_TRUE  },
-   /* 177 HB_P_HASHGEN       */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 177 HB_P_HASHGEN       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 178 HB_P_SEQBLOCK      */ { HB_PCK_FIXED,    1,  HB_FALSE },
    /* 179 HB_P_THREADSTATICS */ { HB_PCK_UNKNOWN,  0,  HB_FALSE }, /* 3 + 2*count; count from 2-byte operand */
-   /* 180 HB_P_PUSHAPARAMS   */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 180 HB_P_PUSHAPARAMS   */ { HB_PCK_FIXED,    1,  HB_TRUE  },
 };
 
 /* Verify the table has exactly HB_P_LAST_PCODE entries at compile time. */
