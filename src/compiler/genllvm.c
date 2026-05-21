@@ -757,6 +757,13 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          case HB_P_POPALIAS:       HB_EMIT_NOARG_SHIM( "popalias" );       break;
          case HB_P_SWAPALIAS:      HB_EMIT_NOARG_SHIM( "swapalias" );      break;
 
+         /* Group D: 5 OOP no-operand shims */
+         case HB_P_PUSHSELF:       HB_EMIT_NOARG_SHIM( "pushself" );       break;
+         case HB_P_PUSHOVARREF:    HB_EMIT_NOARG_SHIM( "pushovarref" );    break;
+         case HB_P_WITHOBJECTSTART: HB_EMIT_NOARG_SHIM( "withobjectstart" ); break;
+         case HB_P_WITHOBJECTEND:  HB_EMIT_NOARG_SHIM( "withobjectend" );  break;
+         case HB_P_FUNCPTR:        HB_EMIT_NOARG_SHIM( "funcptr" );        break;
+
 #undef HB_EMIT_NOARG_SHIM
 
          /* Group A: 2 ref-push opcodes (2-byte index operand) */
@@ -1158,6 +1165,78 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
          }
 
+         /* Group D: 2 symbol-operand OOP shims */
+         case HB_P_MESSAGE:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_message(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_WITHOBJECTMESSAGE:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            if( uiSym == 0xFFFF )
+            {
+               /* Special sentinel: pass null symbol pointer */
+               fprintf( yyc,
+                        "  %%r%lu = call i32 @hb_vmsh_withobjectmessage(%%HB_SYMB* null)\n"
+                        "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                        "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                        ( unsigned long ) pos,
+                        ( unsigned long ) pos, ( unsigned long ) pos,
+                        ( unsigned long ) pos, szNextLabel );
+            }
+            else
+            {
+               fprintf( yyc,
+                        "  %%r%lu = call i32 @hb_vmsh_withobjectmessage(%%HB_SYMB* getelementptr"
+                        "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                        "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                        "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                        ( unsigned long ) pos,
+                        iSymCount, iSymCount, ( unsigned ) uiSym,
+                        ( unsigned long ) pos, ( unsigned long ) pos,
+                        ( unsigned long ) pos, szNextLabel );
+            }
+            break;
+         }
+
+         /* Group D: 2 count-operand SEND shims */
+         case HB_P_SEND:
+         {
+            HB_USHORT uiParams = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_send(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiParams,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_SENDSHORT:
+         {
+            unsigned uiParams = ( unsigned ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_send(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, uiParams,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
          default:
             /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
             break;
@@ -1296,6 +1375,15 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_popaliasedfield(%%HB_SYMB*)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_pushaliasedvar(%%HB_SYMB*)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_popaliasedvar(%%HB_SYMB*)\n" );
+   /* Group D: OOP message shim declarations */
+   fprintf( yyc, "declare i32 @hb_vmsh_pushself()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushovarref()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_withobjectstart()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_withobjectend()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_funcptr()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_message(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_withobjectmessage(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_send(i32)\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
