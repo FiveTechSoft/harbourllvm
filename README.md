@@ -30,6 +30,7 @@ straight to a native binary and links against the precompiled Harbour runtime
 | 1 — IR text emitter | `harbour -GL` emits LLVM IR text (`.ll`) equivalent to the C backend; validated with clang. | **done** |
 | 2 — Embed libLLVM + lld | `harbour -GL` produces an `.exe` directly — no external C compiler. | **done** |
 | 3 — Unroll pcode to IR | Exported runtime op shim; straight-line IR; no interpreter loop. | **done** |
+| A — FOR loops + compound assign | Straight-line IR for `FOR..NEXT`/`FOR..STEP` and `+=`/`-=`/`*=`/`/=`/`%=`/`^=`/`++`/`--`. | **done** |
 
 Plan 2 (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API to
 turn its IR into a native object file and embeds the LLD linker (via a small
@@ -44,10 +45,16 @@ comparisons, logical ops, jumps, function calls, return), `harbour -GL` now
 emits **straight-line native code** — one LLVM basic block per pcode opcode,
 each calling an exported `hb_vmsh_*` op shim — instead of handing the pcode
 array to the `hb_vmExecute` bytecode interpreter. Functions using opcodes
-outside the subset (codeblocks, `FOR` loops, RDD ops, …) fall back,
+outside the subset (codeblocks, RDD ops, OOP messages, …) fall back,
 whole-function, to the interpreter, so every program stays correct. This
 removes the dispatch overhead; type specialization (the larger speedup) is
 possible future work.
+
+Opcode group A extends the straight-line subset to FOR loops (`FOR..NEXT`,
+`FOR..STEP`) and the compound-assignment / increment-decrement operators, so
+those constructs are now straight-lined instead of falling back. Further
+opcode groups (arrays, RDD fields, OOP, FOR EACH, SWITCH, codeblocks, macros,
+SEQUENCE) are planned, each as its own spec.
 
 The full design and step-by-step plans live in
 [`docs/superpowers/`](docs/superpowers/).
