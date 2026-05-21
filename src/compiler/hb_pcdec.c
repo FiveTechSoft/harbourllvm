@@ -22,10 +22,12 @@
 
 /*
  * Straight-line emitter "in scope" subset (fSupported = HB_TRUE):
- *   HB_P_AND, HB_P_EQUAL, HB_P_EXACTLYEQUAL, HB_P_FALSE, HB_P_FORTEST,
+ *   HB_P_AND, HB_P_EQUAL, HB_P_EXACTLYEQUAL, HB_P_FALSE,
+ *   HB_P_FORTEST (not in subset, keeping FALSE),
  *   HB_P_FUNCTION, HB_P_FUNCTIONSHORT, HB_P_FRAME, HB_P_GREATER,
  *   HB_P_GREATEREQUAL, HB_P_DIVIDE, HB_P_DO, HB_P_DOSHORT, HB_P_DUPLICATE,
- *   HB_P_INC (not in subset, keeping FALSE), HB_P_INSTRING,
+ *   HB_P_INC (not in subset, keeping FALSE),
+ *   HB_P_INSTRING (not in subset, keeping FALSE),
  *   HB_P_JUMPNEAR, HB_P_JUMP, HB_P_JUMPFAR,
  *   HB_P_JUMPFALSENEAR, HB_P_JUMPFALSE, HB_P_JUMPFALSEFAR,
  *   HB_P_JUMPTRUENEAR, HB_P_JUMPTRUE, HB_P_JUMPTRUEFAR,

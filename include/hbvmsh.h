@@ -16,6 +16,7 @@ extern HB_EXPORT int hb_vmsh_pushnil( void );
 extern HB_EXPORT int hb_vmsh_pushlogical( HB_BOOL fValue );
 extern HB_EXPORT int hb_vmsh_pushint( int iValue );
 extern HB_EXPORT int hb_vmsh_pushlong( HB_MAXINT nValue );
+extern HB_EXPORT int hb_vmsh_pushlonglong( HB_LONGLONG llValue );
 extern HB_EXPORT int hb_vmsh_pushdouble( double dValue, int iWidth, int iDec );
 extern HB_EXPORT int hb_vmsh_pushstring( const char * szText, HB_SIZE nLen );
 

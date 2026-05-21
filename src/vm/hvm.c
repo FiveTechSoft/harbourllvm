@@ -12671,6 +12671,17 @@ HB_EXPORT int hb_vmsh_pushlong( HB_MAXINT nValue )
    return ( int ) hb_stackGetActionRequest();
 }
 
+HB_EXPORT int hb_vmsh_pushlonglong( HB_LONGLONG llValue )
+{
+   HB_STACK_TLS_PRELOAD
+#if ! defined( HB_LONG_LONG_OFF )
+   hb_vmPushLongLongConst( llValue );
+#else
+   hb_vmPushDoubleConst( ( double ) llValue, HB_DEFAULT_WIDTH, HB_DEFAULT_DECIMALS );
+#endif
+   return ( int ) hb_stackGetActionRequest();
+}
+
 HB_EXPORT int hb_vmsh_pushdouble( double dValue, int iWidth, int iDec )
 {
    HB_STACK_TLS_PRELOAD

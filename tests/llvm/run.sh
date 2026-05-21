@@ -22,7 +22,20 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 OUT="${1:-build/llvm-ci}"
-CLANG="${CLANG:-clang}"
+# Resolve the clang binary.  Honor an explicit $CLANG env var if set.
+# If CLANG is unset and bare 'clang' is not on PATH, fall back to amdclang++
+# (first on PATH, then at the known LLVM install prefix on Windows).
+if [ -z "${CLANG+x}" ]; then
+   if command -v clang >/dev/null 2>&1; then
+      CLANG="clang"
+   elif command -v amdclang++ >/dev/null 2>&1; then
+      CLANG="amdclang++"
+   elif [ -x "/c/Program Files/LLVM/bin/amdclang++.exe" ]; then
+      CLANG="/c/Program Files/LLVM/bin/amdclang++.exe"
+   else
+      CLANG="clang"   # last resort — will fail with a clear error below
+   fi
+fi
 rm -rf "$OUT"
 mkdir -p "$OUT"
 

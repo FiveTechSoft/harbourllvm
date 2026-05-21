@@ -473,7 +473,7 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_LONGLONG nVal = HB_PCODE_MKLONGLONG( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushlong(i64 %lld)\n"
+                     "  %%r%lu = call i32 @hb_vmsh_pushlonglong(i64 %lld)\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
                      "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
                      ( unsigned long ) pos, ( long long ) nVal,
@@ -846,6 +846,7 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_pushlogical(i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_pushint(i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_pushlong(i64)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushlonglong(i64)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_pushdouble(double, i32, i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_pushstring(i8*, i64)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_pushlocal(i32)\n" );
