@@ -131,9 +131,18 @@ for prg in tests/llvm/*.prg; do
          if [ "$has_vmsh" -gt 0 ] && [ "$has_fallback" -eq 0 ]; then
             sl_note="straight-line: hb_vmsh_ used, no hb_vmExecute in HB_FUN_MAIN"
          elif [ "$has_fallback" -gt 0 ]; then
-            # Whole-function fallback triggered — acceptable (unsupported opcodes)
-            # but we report it as a note rather than a failure
-            sl_note="note: HB_FUN_MAIN fell back to hb_vmExecute (unsupported opcodes)"
+            # Check if this program is required to straight-line (group A corpus).
+            # loop, compound, forstep must NOT fall back — treat it as a hard failure.
+            case "$name" in
+               loop|compound|forstep)
+                  status_sl="FAIL"
+                  sl_note="FAIL: HB_FUN_MAIN fell back to hb_vmExecute — expected straight-line for $name"
+                  ;;
+               *)
+                  # Other programs with unsupported opcodes: acceptable fallback
+                  sl_note="note: HB_FUN_MAIN fell back to hb_vmExecute (unsupported opcodes)"
+                  ;;
+            esac
          else
             status_sl="FAIL"
             sl_note="straight-line: neither hb_vmsh_ nor hb_vmExecute found in IR"
