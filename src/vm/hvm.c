@@ -13225,3 +13225,54 @@ HB_EXPORT int hb_vmsh_localnearaddint( int iLocal, int iAdd )
    return ( int ) hb_stackGetActionRequest();
 }
 
+/* --- group B: arrays + hashes --- */
+
+HB_EXPORT int hb_vmsh_arraypush( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmArrayPush();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_arraypushref( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmArrayPushRef();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_arraypop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmArrayPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushaparams( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushAParams();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_arraydim( int iCount )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmArrayDim( ( HB_USHORT ) iCount );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_arraygen( int iCount )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmArrayGen( ( HB_SIZE ) iCount );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_hashgen( int iCount )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmHashGen( ( HB_SIZE ) iCount );
+   return ( int ) hb_stackGetActionRequest();
+}
+

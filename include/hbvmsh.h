@@ -102,6 +102,15 @@ extern HB_EXPORT int hb_vmsh_localincpush( int iLocal );
 extern HB_EXPORT int hb_vmsh_localaddint( int iLocal, int iAdd );
 extern HB_EXPORT int hb_vmsh_localnearaddint( int iLocal, int iAdd );
 
+/* --- group B: arrays + hashes --- */
+extern HB_EXPORT int hb_vmsh_arraypush( void );
+extern HB_EXPORT int hb_vmsh_arraypushref( void );
+extern HB_EXPORT int hb_vmsh_arraypop( void );
+extern HB_EXPORT int hb_vmsh_pushaparams( void );
+extern HB_EXPORT int hb_vmsh_arraydim( int iCount );
+extern HB_EXPORT int hb_vmsh_arraygen( int iCount );
+extern HB_EXPORT int hb_vmsh_hashgen( int iCount );
+
 HB_EXTERN_END
 
 #endif
