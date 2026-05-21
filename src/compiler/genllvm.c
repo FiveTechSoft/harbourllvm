@@ -723,7 +723,125 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          case HB_P_DUPLICATE:      HB_EMIT_NOARG_SHIM( "duplicate" );      break;
          case HB_P_RETVALUE:       HB_EMIT_NOARG_SHIM( "retvalue" );       break;
 
+         /* Group A: FOR loops + compound assignment — 21 no-operand shims */
+         case HB_P_FORTEST:        HB_EMIT_NOARG_SHIM( "fortest" );        break;
+         case HB_P_INC:            HB_EMIT_NOARG_SHIM( "inc" );            break;
+         case HB_P_DEC:            HB_EMIT_NOARG_SHIM( "dec" );            break;
+         case HB_P_DUPLUNREF:      HB_EMIT_NOARG_SHIM( "duplunref" );      break;
+         case HB_P_PUSHUNREF:      HB_EMIT_NOARG_SHIM( "pushunref" );      break;
+         case HB_P_PLUSEQPOP:      HB_EMIT_NOARG_SHIM( "pluseqpop" );      break;
+         case HB_P_MINUSEQPOP:     HB_EMIT_NOARG_SHIM( "minuseqpop" );     break;
+         case HB_P_MULTEQPOP:      HB_EMIT_NOARG_SHIM( "multeqpop" );      break;
+         case HB_P_DIVEQPOP:       HB_EMIT_NOARG_SHIM( "diveqpop" );       break;
+         case HB_P_MODEQPOP:       HB_EMIT_NOARG_SHIM( "modeqpop" );       break;
+         case HB_P_EXPEQPOP:       HB_EMIT_NOARG_SHIM( "expeqpop" );       break;
+         case HB_P_DECEQPOP:       HB_EMIT_NOARG_SHIM( "deceqpop" );       break;
+         case HB_P_INCEQPOP:       HB_EMIT_NOARG_SHIM( "inceqpop" );       break;
+         case HB_P_PLUSEQ:         HB_EMIT_NOARG_SHIM( "pluseq" );         break;
+         case HB_P_MINUSEQ:        HB_EMIT_NOARG_SHIM( "minuseq" );        break;
+         case HB_P_MULTEQ:         HB_EMIT_NOARG_SHIM( "multeq" );         break;
+         case HB_P_DIVEQ:          HB_EMIT_NOARG_SHIM( "diveq" );          break;
+         case HB_P_MODEQ:          HB_EMIT_NOARG_SHIM( "modeq" );          break;
+         case HB_P_EXPEQ:          HB_EMIT_NOARG_SHIM( "expeq" );          break;
+         case HB_P_DECEQ:          HB_EMIT_NOARG_SHIM( "deceq" );          break;
+         case HB_P_INCEQ:          HB_EMIT_NOARG_SHIM( "inceq" );          break;
+
 #undef HB_EMIT_NOARG_SHIM
+
+         /* Group A: 2 ref-push opcodes (2-byte index operand) */
+         case HB_P_PUSHLOCALREF:
+         {
+            int iLocal = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushlocalref(i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, iLocal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_PUSHSTATICREF:
+         {
+            HB_USHORT uiStatic = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushstaticref(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiStatic,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         /* Group A: 5 local direct-modify opcodes */
+         case HB_P_LOCALINC:
+         {
+            HB_USHORT uiLocal = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_localinc(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiLocal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_LOCALDEC:
+         {
+            HB_USHORT uiLocal = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_localdec(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiLocal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_LOCALINCPUSH:
+         {
+            HB_USHORT uiLocal = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_localincpush(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiLocal,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_LOCALADDINT:
+         {
+            HB_USHORT uiLocal  = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            int       iAddend  = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 3 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_localaddint(i32 %u, i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiLocal, iAddend,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_LOCALNEARADDINT:
+         {
+            unsigned uiLocal  = ( unsigned ) pCode[ pos + 1 ];
+            int      iAddend  = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 2 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_localnearaddint(i32 %u, i32 %d)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, uiLocal, iAddend,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
 
          case HB_P_FRAME:
          {
@@ -878,6 +996,34 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_do(i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_retvalue()\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_poplogical(i32*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_fortest()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_inc()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_dec()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_duplunref()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushunref()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pluseqpop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_minuseqpop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_multeqpop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_diveqpop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_modeqpop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_expeqpop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_deceqpop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_inceqpop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pluseq()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_minuseq()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_multeq()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_diveq()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_modeq()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_expeq()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_deceq()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_inceq()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushlocalref(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushstaticref(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_localinc(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_localdec(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_localincpush(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_localaddint(i32, i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_localnearaddint(i32, i32)\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
