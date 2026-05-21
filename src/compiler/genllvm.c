@@ -746,6 +746,12 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          case HB_P_DECEQ:          HB_EMIT_NOARG_SHIM( "deceq" );          break;
          case HB_P_INCEQ:          HB_EMIT_NOARG_SHIM( "inceq" );          break;
 
+         /* Group B: 4 array/hash no-operand shims */
+         case HB_P_ARRAYPUSH:      HB_EMIT_NOARG_SHIM( "arraypush" );      break;
+         case HB_P_ARRAYPUSHREF:   HB_EMIT_NOARG_SHIM( "arraypushref" );   break;
+         case HB_P_ARRAYPOP:       HB_EMIT_NOARG_SHIM( "arraypop" );       break;
+         case HB_P_PUSHAPARAMS:    HB_EMIT_NOARG_SHIM( "pushaparams" );    break;
+
 #undef HB_EMIT_NOARG_SHIM
 
          /* Group A: 2 ref-push opcodes (2-byte index operand) */
@@ -909,6 +915,46 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
          }
 
+         /* Group B: 3 array/hash count-operand shims */
+         case HB_P_ARRAYDIM:
+         {
+            HB_USHORT uiCount = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_arraydim(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiCount,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_ARRAYGEN:
+         {
+            HB_USHORT uiCount = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_arraygen(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiCount,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_HASHGEN:
+         {
+            HB_USHORT uiCount = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_hashgen(i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, ( unsigned ) uiCount,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
          default:
             /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
             break;
@@ -1024,6 +1070,14 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_localincpush(i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_localaddint(i32, i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_localnearaddint(i32, i32)\n" );
+   /* Group B: array + hash shim declarations */
+   fprintf( yyc, "declare i32 @hb_vmsh_arraypush()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_arraypushref()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_arraypop()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushaparams()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_arraydim(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_arraygen(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_hashgen(i32)\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
