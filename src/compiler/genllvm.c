@@ -752,6 +752,11 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          case HB_P_ARRAYPOP:       HB_EMIT_NOARG_SHIM( "arraypop" );       break;
          case HB_P_PUSHAPARAMS:    HB_EMIT_NOARG_SHIM( "pushaparams" );    break;
 
+         /* Group C: 3 alias no-operand shims */
+         case HB_P_PUSHALIAS:      HB_EMIT_NOARG_SHIM( "pushalias" );      break;
+         case HB_P_POPALIAS:       HB_EMIT_NOARG_SHIM( "popalias" );       break;
+         case HB_P_SWAPALIAS:      HB_EMIT_NOARG_SHIM( "swapalias" );      break;
+
 #undef HB_EMIT_NOARG_SHIM
 
          /* Group A: 2 ref-push opcodes (2-byte index operand) */
@@ -955,6 +960,204 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
          }
 
+         /* Group C: 11 symbol-operand shims (2-byte index) */
+         case HB_P_PUSHFIELD:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushfield(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_POPFIELD:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_popfield(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_PUSHMEMVAR:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushmemvar(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_PUSHMEMVARREF:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushmemvarref(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_POPMEMVAR:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_popmemvar(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_PUSHVARIABLE:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushvariable(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_POPVARIABLE:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_popvariable(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_PUSHALIASEDFIELD:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushaliasedfield(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         /* NEAR variant: 1-byte index, reuses pushaliasedfield shim */
+         case HB_P_PUSHALIASEDFIELDNEAR:
+         {
+            unsigned uiSym = ( unsigned ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushaliasedfield(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_POPALIASEDFIELD:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_popaliasedfield(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         /* NEAR variant: 1-byte index, reuses popaliasedfield shim */
+         case HB_P_POPALIASEDFIELDNEAR:
+         {
+            unsigned uiSym = ( unsigned ) pCode[ pos + 1 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_popaliasedfield(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_PUSHALIASEDVAR:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushaliasedvar(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_POPALIASEDVAR:
+         {
+            HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_popaliasedvar(%%HB_SYMB* getelementptr"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
          default:
             /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
             break;
@@ -1078,6 +1281,21 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_arraydim(i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_arraygen(i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_hashgen(i32)\n" );
+   /* Group C: RDD fields, memvars, aliases shim declarations */
+   fprintf( yyc, "declare i32 @hb_vmsh_pushalias()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_popalias()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_swapalias()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushfield(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_popfield(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushmemvar(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushmemvarref(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_popmemvar(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushvariable(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_popvariable(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushaliasedfield(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_popaliasedfield(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_pushaliasedvar(%%HB_SYMB*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_popaliasedvar(%%HB_SYMB*)\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
