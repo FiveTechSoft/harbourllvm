@@ -131,12 +131,14 @@ for prg in tests/llvm/*.prg; do
          if [ "$has_vmsh" -gt 0 ] && [ "$has_fallback" -eq 0 ]; then
             sl_note="straight-line: hb_vmsh_ used, no hb_vmExecute in HB_FUN_MAIN"
          elif [ "$has_fallback" -gt 0 ]; then
-            # Check if this program is required to straight-line (group A corpus).
-            # loop, compound, forstep must NOT fall back — treat it as a hard failure.
+            # Check if this program is required to straight-line.
+            # Group A (loop/compound/forstep/arrays), B (arraylit/hashlit/arraydim),
+            # and C (memvar/dbfield) corpus programs must NOT fall back — hard failure.
             case "$name" in
                loop|compound|forstep|compound2|forstep_var|\
                arraylit|hashlit|arraydim|\
-               arraymdim|arrayref)
+               arraymdim|arrayref|\
+               memvar|dbfield)
                   status_sl="FAIL"
                   sl_note="FAIL: HB_FUN_MAIN fell back to hb_vmExecute — expected straight-line for $name"
                   ;;
