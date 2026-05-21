@@ -29,15 +29,25 @@ straight to a native binary and links against the precompiled Harbour runtime
 |------|-------------|-------|
 | 1 — IR text emitter | `harbour -GL` emits LLVM IR text (`.ll`) equivalent to the C backend; validated with clang. | **done** |
 | 2 — Embed libLLVM + lld | `harbour -GL` produces an `.exe` directly — no external C compiler. | **done** |
-| **3 — Unroll pcode to IR** | Exported runtime op shim; straight-line IR; no interpreter loop. | planned |
+| 3 — Unroll pcode to IR | Exported runtime op shim; straight-line IR; no interpreter loop. | **done** |
 
-Plan 2 done (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API
-to turn its IR into a native object file and embeds the LLD linker (via a
-small C++ shim) to link it — using MinGW runtime objects bundled in
+Plan 2 (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API to
+turn its IR into a native object file and embeds the LLD linker (via a small
+C++ shim) to link it — using MinGW runtime objects bundled in
 `lib/win/mingw64-rt/`. `harbour -GL foo.prg` produces a runnable `foo.exe`
 with **no external C compiler or linker** on `PATH`, output identical to the C
 backend. LLVM lives in a side library (`libhbllvm.a`) embedded only into
 `harbour.exe`, so `hbmk2` / `hbrun` stay small.
+
+Plan 3: for functions within a supported pcode subset (locals, arithmetic,
+comparisons, logical ops, jumps, function calls, return), `harbour -GL` now
+emits **straight-line native code** — one LLVM basic block per pcode opcode,
+each calling an exported `hb_vmsh_*` op shim — instead of handing the pcode
+array to the `hb_vmExecute` bytecode interpreter. Functions using opcodes
+outside the subset (codeblocks, `FOR` loops, RDD ops, …) fall back,
+whole-function, to the interpreter, so every program stays correct. This
+removes the dispatch overhead; type specialization (the larger speedup) is
+possible future work.
 
 The full design and step-by-step plans live in
 [`docs/superpowers/`](docs/superpowers/).
@@ -54,10 +64,12 @@ backend, `-GL` writes the LLVM IR, compiles it to a native object, and links
 `hello.exe` — all in-process, no external toolchain. The intermediate `.ll`
 and `.o` are kept for inspection.
 
-The emitted IR mirrors what the C backend produces: each function becomes an
-LLVM function that hands its pcode to the Harbour VM, and the module symbol
-table is registered through an `@llvm.global_ctors` constructor. The program
-still uses the pcode interpreter at runtime — removing that is Plan 3.
+A function within the supported pcode subset is emitted as straight-line IR —
+one basic block per opcode, calling the `hb_vmsh_*` runtime op shim directly,
+with no bytecode dispatch. A function using an opcode outside the subset falls
+back to an LLVM function that hands its pcode to the `hb_vmExecute`
+interpreter. The module symbol table is registered, in both cases, through an
+`@llvm.global_ctors` constructor.
 
 ## How it is verified
 
