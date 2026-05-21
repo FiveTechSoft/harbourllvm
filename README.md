@@ -31,6 +31,7 @@ straight to a native binary and links against the precompiled Harbour runtime
 | 2 — Embed libLLVM + lld | `harbour -GL` produces an `.exe` directly — no external C compiler. | **done** |
 | 3 — Unroll pcode to IR | Exported runtime op shim; straight-line IR; no interpreter loop. | **done** |
 | A — FOR loops + compound assign | Straight-line IR for `FOR..NEXT`/`FOR..STEP` and `+=`/`-=`/`*=`/`/=`/`%=`/`^=`/`++`/`--`. | **done** |
+| B — arrays + hashes | Straight-line IR for array/hash literals, element access/assignment, `Array()`, `LOCAL a[m,n]`. | **done** |
 
 Plan 2 (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API to
 turn its IR into a native object file and embeds the LLD linker (via a small
@@ -50,11 +51,12 @@ whole-function, to the interpreter, so every program stays correct. This
 removes the dispatch overhead; type specialization (the larger speedup) is
 possible future work.
 
-Opcode group A extends the straight-line subset to FOR loops (`FOR..NEXT`,
-`FOR..STEP`) and the compound-assignment / increment-decrement operators, so
-those constructs are now straight-lined instead of falling back. Further
-opcode groups (arrays, RDD fields, OOP, FOR EACH, SWITCH, codeblocks, macros,
-SEQUENCE) are planned, each as its own spec.
+Opcode groups A and B extend the straight-line subset: group A covers FOR
+loops (`FOR..NEXT`, `FOR..STEP`) and the compound-assignment /
+increment-decrement operators; group B covers array and hash literals,
+element access and assignment, and array creation. Further opcode groups (RDD
+fields, OOP, FOR EACH, SWITCH, codeblocks, macros, SEQUENCE) are planned, each
+as its own spec.
 
 The full design and step-by-step plans live in
 [`docs/superpowers/`](docs/superpowers/).
