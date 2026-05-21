@@ -58,6 +58,13 @@
  * Group B additions (arrays + hashes):
  *   HB_P_ARRAYPUSH, HB_P_ARRAYPOP, HB_P_ARRAYDIM, HB_P_ARRAYGEN,
  *   HB_P_ARRAYPUSHREF, HB_P_HASHGEN, HB_P_PUSHAPARAMS
+ *
+ * Group C additions (RDD fields, memvars, aliases):
+ *   HB_P_POPALIAS, HB_P_POPALIASEDFIELD, HB_P_POPALIASEDFIELDNEAR,
+ *   HB_P_POPALIASEDVAR, HB_P_POPFIELD, HB_P_POPMEMVAR, HB_P_POPVARIABLE,
+ *   HB_P_PUSHALIAS, HB_P_PUSHALIASEDFIELD, HB_P_PUSHALIASEDFIELDNEAR,
+ *   HB_P_PUSHALIASEDVAR, HB_P_PUSHFIELD, HB_P_PUSHMEMVAR,
+ *   HB_P_PUSHMEMVARREF, HB_P_PUSHVARIABLE, HB_P_SWAPALIAS
  */
 
 /* Compile-time size check — must have exactly HB_P_LAST_PCODE entries. */
@@ -139,32 +146,32 @@ const HB_PCINFO hb_pcInfo[] =
    /* 71 HB_P_PARAMETER      */ { HB_PCK_FIXED,    4,  HB_FALSE },
    /* 72 HB_P_PLUS           */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 73 HB_P_POP            */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 74 HB_P_POPALIAS       */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 75 HB_P_POPALIASEDFIELD*/ { HB_PCK_FIXED,    3,  HB_FALSE },
-   /* 76 HB_P_POPALIASEDFIELDNEAR*/{HB_PCK_FIXED,  2,  HB_FALSE },
-   /* 77 HB_P_POPALIASEDVAR  */ { HB_PCK_FIXED,    3,  HB_FALSE },
-   /* 78 HB_P_POPFIELD       */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 74 HB_P_POPALIAS       */ { HB_PCK_FIXED,    1,  HB_TRUE  },
+   /* 75 HB_P_POPALIASEDFIELD*/ { HB_PCK_FIXED,    3,  HB_TRUE  },
+   /* 76 HB_P_POPALIASEDFIELDNEAR*/{HB_PCK_FIXED,  2,  HB_TRUE  },
+   /* 77 HB_P_POPALIASEDVAR  */ { HB_PCK_FIXED,    3,  HB_TRUE  },
+   /* 78 HB_P_POPFIELD       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 79 HB_P_POPLOCAL       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 80 HB_P_POPLOCALNEAR   */ { HB_PCK_FIXED,    2,  HB_TRUE  },
-   /* 81 HB_P_POPMEMVAR      */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 81 HB_P_POPMEMVAR      */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 82 HB_P_POPSTATIC      */ { HB_PCK_FIXED,    3,  HB_TRUE  },
-   /* 83 HB_P_POPVARIABLE    */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 83 HB_P_POPVARIABLE    */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 84 HB_P_POWER          */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 85 HB_P_PUSHALIAS      */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 86 HB_P_PUSHALIASEDFIELD*/{HB_PCK_FIXED,     3,  HB_FALSE },
-   /* 87 HB_P_PUSHALIASEDFIELDNEAR*/{HB_PCK_FIXED, 2,  HB_FALSE },
-   /* 88 HB_P_PUSHALIASEDVAR */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 85 HB_P_PUSHALIAS      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
+   /* 86 HB_P_PUSHALIASEDFIELD*/{HB_PCK_FIXED,     3,  HB_TRUE  },
+   /* 87 HB_P_PUSHALIASEDFIELDNEAR*/{HB_PCK_FIXED, 2,  HB_TRUE  },
+   /* 88 HB_P_PUSHALIASEDVAR */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 89 HB_P_PUSHBLOCK      */ { HB_PCK_VARBLOCK, 0,  HB_FALSE }, /* 2-byte size operand */
    /* 90 HB_P_PUSHBLOCKSHORT */ { HB_PCK_VARBLOCK, 0,  HB_FALSE }, /* 1-byte size operand */
-   /* 91 HB_P_PUSHFIELD      */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 91 HB_P_PUSHFIELD      */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 92 HB_P_PUSHBYTE       */ { HB_PCK_FIXED,    2,  HB_TRUE  },
    /* 93 HB_P_PUSHINT        */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 94 HB_P_PUSHLOCAL      */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 95 HB_P_PUSHLOCALNEAR  */ { HB_PCK_FIXED,    2,  HB_TRUE  },
    /* 96 HB_P_PUSHLOCALREF   */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 97 HB_P_PUSHLONG       */ { HB_PCK_FIXED,    5,  HB_TRUE  },
-   /* 98 HB_P_PUSHMEMVAR     */ { HB_PCK_FIXED,    3,  HB_FALSE },
-   /* 99 HB_P_PUSHMEMVARREF  */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 98 HB_P_PUSHMEMVAR     */ { HB_PCK_FIXED,    3,  HB_TRUE  },
+   /* 99 HB_P_PUSHMEMVARREF  */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 100 HB_P_PUSHNIL       */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 101 HB_P_PUSHDOUBLE    */ { HB_PCK_FIXED,   11,  HB_TRUE  }, /* 3 + sizeof(double)=8 */
    /* 102 HB_P_PUSHSELF      */ { HB_PCK_FIXED,    1,  HB_FALSE },
@@ -174,7 +181,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 106 HB_P_PUSHSTRSHORT  */ { HB_PCK_STR1,     0,  HB_TRUE  }, /* 1-byte length prefix */
    /* 107 HB_P_PUSHSYM       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 108 HB_P_PUSHSYMNEAR   */ { HB_PCK_FIXED,    2,  HB_TRUE  },
-   /* 109 HB_P_PUSHVARIABLE  */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 109 HB_P_PUSHVARIABLE  */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 110 HB_P_RETVALUE      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 111 HB_P_SEND          */ { HB_PCK_FIXED,    3,  HB_FALSE }, /* instr is 3 bytes; interpreter may eat following POP */
    /* 112 HB_P_SENDSHORT     */ { HB_PCK_FIXED,    2,  HB_FALSE },
@@ -184,7 +191,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 116 HB_P_SFRAME        */ { HB_PCK_FIXED,    3,  HB_FALSE },
    /* 117 HB_P_STATICS       */ { HB_PCK_FIXED,    5,  HB_FALSE },
    /* 118 HB_P_STATICNAME    */ { HB_PCK_UNKNOWN,  0,  HB_FALSE }, /* null-terminated string at pCode+4 */
-   /* 119 HB_P_SWAPALIAS     */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 119 HB_P_SWAPALIAS     */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 120 HB_P_TRUE          */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 121 HB_P_ZERO          */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 122 HB_P_ONE           */ { HB_PCK_FIXED,    1,  HB_TRUE  },
