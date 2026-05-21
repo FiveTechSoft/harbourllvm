@@ -13214,14 +13214,14 @@ HB_EXPORT int hb_vmsh_localincpush( int iLocal )
 HB_EXPORT int hb_vmsh_localaddint( int iLocal, int iAdd )
 {
    HB_STACK_TLS_PRELOAD
-   hb_vmAddInt( hb_stackLocalVariable( iLocal ), ( HB_SHORT ) iAdd );
+   hb_vmAddInt( hb_stackLocalVariable( iLocal ), ( HB_LONG ) iAdd );
    return ( int ) hb_stackGetActionRequest();
 }
 
 HB_EXPORT int hb_vmsh_localnearaddint( int iLocal, int iAdd )
 {
    HB_STACK_TLS_PRELOAD
-   hb_vmAddInt( hb_stackLocalVariable( iLocal ), ( HB_SHORT ) iAdd );
+   hb_vmAddInt( hb_stackLocalVariable( iLocal ), ( HB_LONG ) iAdd );
    return ( int ) hb_stackGetActionRequest();
 }
 
