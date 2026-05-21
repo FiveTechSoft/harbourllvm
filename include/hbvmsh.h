@@ -127,6 +127,16 @@ extern HB_EXPORT int hb_vmsh_popaliasedfield( PHB_SYMB pSym );
 extern HB_EXPORT int hb_vmsh_pushaliasedvar( PHB_SYMB pSym );
 extern HB_EXPORT int hb_vmsh_popaliasedvar( PHB_SYMB pSym );
 
+/* --- group D: OOP messages --- */
+extern HB_EXPORT int hb_vmsh_pushself( void );
+extern HB_EXPORT int hb_vmsh_pushovarref( void );
+extern HB_EXPORT int hb_vmsh_withobjectstart( void );
+extern HB_EXPORT int hb_vmsh_withobjectend( void );
+extern HB_EXPORT int hb_vmsh_funcptr( void );
+extern HB_EXPORT int hb_vmsh_message( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_withobjectmessage( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_send( int uiParams );
+
 HB_EXTERN_END
 
 #endif

@@ -13379,3 +13379,71 @@ HB_EXPORT int hb_vmsh_popaliasedvar( PHB_SYMB pSym )
    return ( int ) hb_stackGetActionRequest();
 }
 
+/* --- group D: OOP messages --- */
+
+HB_EXPORT int hb_vmsh_pushself( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPush( hb_stackSelfItem() );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushovarref( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushObjectVarRef();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_withobjectstart( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmWithObjectStart();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_withobjectend( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_stackPop();   /* remove with object envelope */
+   hb_stackPop();   /* remove implicit object       */
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_funcptr( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmFuncPtr();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_message( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushSymbol( pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_withobjectmessage( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pWith;
+   if( pSym != NULL )
+      hb_vmPushSymbol( pSym );
+   pWith = hb_stackWithObjectItem();
+   if( pWith )
+      hb_vmPush( pWith );
+   else
+      hb_stackAllocItem()->type = HB_IT_NIL;
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_send( int uiParams )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_itemSetNil( hb_stackReturnItem() );
+   hb_vmSend( ( HB_USHORT ) uiParams );
+   hb_stackPushReturn();
+   return ( int ) hb_stackGetActionRequest();
+}
+
