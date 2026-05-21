@@ -135,7 +135,8 @@ for prg in tests/llvm/*.prg; do
             # loop, compound, forstep must NOT fall back — treat it as a hard failure.
             case "$name" in
                loop|compound|forstep|compound2|forstep_var|\
-               arraylit|hashlit|arraydim)
+               arraylit|hashlit|arraydim|\
+               arraymdim|arrayref)
                   status_sl="FAIL"
                   sl_note="FAIL: HB_FUN_MAIN fell back to hb_vmExecute — expected straight-line for $name"
                   ;;
