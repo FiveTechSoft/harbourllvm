@@ -111,6 +111,22 @@ extern HB_EXPORT int hb_vmsh_arraydim( int iCount );
 extern HB_EXPORT int hb_vmsh_arraygen( int iCount );
 extern HB_EXPORT int hb_vmsh_hashgen( int iCount );
 
+/* --- group C: RDD fields, memvars, aliases --- */
+extern HB_EXPORT int hb_vmsh_pushalias( void );
+extern HB_EXPORT int hb_vmsh_popalias( void );
+extern HB_EXPORT int hb_vmsh_swapalias( void );
+extern HB_EXPORT int hb_vmsh_pushfield( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_popfield( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_pushmemvar( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_pushmemvarref( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_popmemvar( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_pushvariable( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_popvariable( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_pushaliasedfield( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_popaliasedfield( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_pushaliasedvar( PHB_SYMB pSym );
+extern HB_EXPORT int hb_vmsh_popaliasedvar( PHB_SYMB pSym );
+
 HB_EXTERN_END
 
 #endif

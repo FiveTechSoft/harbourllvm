@@ -13276,3 +13276,106 @@ HB_EXPORT int hb_vmsh_hashgen( int iCount )
    return ( int ) hb_stackGetActionRequest();
 }
 
+/* --- group C: RDD fields, memvars, aliases --- */
+
+HB_EXPORT int hb_vmsh_pushalias( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushAlias();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_popalias( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPopAlias();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_swapalias( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmSwapAlias();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushfield( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_rddGetFieldValue( hb_stackAllocItem(), pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_popfield( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_rddPutFieldValue( hb_stackItemFromTop( -1 ), pSym );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushmemvar( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_memvarGetValue( hb_stackAllocItem(), pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushmemvarref( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_memvarGetRefer( hb_stackAllocItem(), pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_popmemvar( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_memvarSetValue( pSym, hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushvariable( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushVariable( pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_popvariable( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_memvarSetValue( pSym, hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushaliasedfield( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushAliasedField( pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_popaliasedfield( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPopAliasedField( pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushaliasedvar( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushAliasedVar( pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_popaliasedvar( PHB_SYMB pSym )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPopAliasedVar( pSym );
+   return ( int ) hb_stackGetActionRequest();
+}
+
