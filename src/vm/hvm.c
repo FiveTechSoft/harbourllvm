@@ -12945,3 +12945,283 @@ HB_EXPORT int hb_vmsh_poplogical( HB_BOOL * pfValue )
    return ( int ) hb_stackGetActionRequest();
 }
 
+/* --- group A shims: FOR loops + compound assignment --- */
+
+HB_EXPORT int hb_vmsh_fortest( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmForTest();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_inc( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmInc( hb_stackItemFromTop( -1 ) );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_dec( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmDec( hb_stackItemFromTop( -1 ) );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_duplunref( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmDuplUnRef();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushunref( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushUnRef();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pluseqpop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   hb_vmPlus( pResult, pResult, hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_minuseqpop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   hb_vmMinus( pResult, pResult, hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_multeqpop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   hb_vmMult( pResult, pResult, hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_diveqpop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   hb_vmDivide( pResult, pResult, hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_modeqpop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   hb_vmModulus( pResult, pResult, hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_expeqpop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   hb_vmPower( pResult, pResult, hb_stackItemFromTop( -1 ) );
+   hb_stackPop();
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_deceqpop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmDec( hb_itemUnRef( hb_stackItemFromTop( -1 ) ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_inceqpop( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmInc( hb_itemUnRef( hb_stackItemFromTop( -1 ) ) );
+   hb_stackPop();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pluseq( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult, pValue;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   pValue = hb_stackItemFromTop( -1 );
+   hb_vmPlus( pResult, pResult, pValue );
+   hb_itemCopy( pValue, pResult );
+   hb_itemMove( hb_stackItemFromTop( -2 ), pValue );
+   hb_stackDec();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_minuseq( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult, pValue;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   pValue = hb_stackItemFromTop( -1 );
+   hb_vmMinus( pResult, pResult, pValue );
+   hb_itemCopy( pValue, pResult );
+   hb_itemMove( hb_stackItemFromTop( -2 ), pValue );
+   hb_stackDec();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_multeq( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult, pValue;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   pValue = hb_stackItemFromTop( -1 );
+   hb_vmMult( pResult, pResult, pValue );
+   hb_itemCopy( pValue, pResult );
+   hb_itemMove( hb_stackItemFromTop( -2 ), pValue );
+   hb_stackDec();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_diveq( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult, pValue;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   pValue = hb_stackItemFromTop( -1 );
+   hb_vmDivide( pResult, pResult, pValue );
+   hb_itemCopy( pValue, pResult );
+   hb_itemMove( hb_stackItemFromTop( -2 ), pValue );
+   hb_stackDec();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_modeq( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult, pValue;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   pValue = hb_stackItemFromTop( -1 );
+   hb_vmModulus( pResult, pResult, pValue );
+   hb_itemCopy( pValue, pResult );
+   hb_itemMove( hb_stackItemFromTop( -2 ), pValue );
+   hb_stackDec();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_expeq( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult, pValue;
+   pResult = hb_itemUnRef( hb_stackItemFromTop( -2 ) );
+   pValue = hb_stackItemFromTop( -1 );
+   hb_vmPower( pResult, pResult, pValue );
+   hb_itemCopy( pValue, pResult );
+   hb_itemMove( hb_stackItemFromTop( -2 ), pValue );
+   hb_stackDec();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_deceq( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult, pValue, pTemp;
+   pResult = hb_stackItemFromTop( -1 );
+   pValue = hb_itemUnRef( pResult );
+   hb_vmDec( pValue );
+   pTemp = hb_stackAllocItem();
+   hb_itemCopy( pTemp, pValue );
+   hb_itemMove( pResult, pTemp );
+   hb_stackDec();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_inceq( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pResult, pValue, pTemp;
+   pResult = hb_stackItemFromTop( -1 );
+   pValue = hb_itemUnRef( pResult );
+   hb_vmInc( pValue );
+   pTemp = hb_stackAllocItem();
+   hb_itemCopy( pTemp, pValue );
+   hb_itemMove( pResult, pTemp );
+   hb_stackDec();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushlocalref( int iLocal )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushLocalByRef( iLocal );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_pushstaticref( int iStatic )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmPushStaticByRef( ( HB_USHORT ) iStatic );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_localinc( int iLocal )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pLocal = hb_stackLocalVariable( iLocal );
+   hb_vmInc( HB_IS_BYREF( pLocal ) ? hb_itemUnRef( pLocal ) : pLocal );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_localdec( int iLocal )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pLocal = hb_stackLocalVariable( iLocal );
+   hb_vmDec( HB_IS_BYREF( pLocal ) ? hb_itemUnRef( pLocal ) : pLocal );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_localincpush( int iLocal )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pLocal = hb_stackLocalVariable( iLocal );
+   if( HB_IS_BYREF( pLocal ) )
+      pLocal = hb_itemUnRef( pLocal );
+   hb_vmInc( pLocal );
+   hb_itemCopy( hb_stackAllocItem(), pLocal );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_localaddint( int iLocal, int iAdd )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmAddInt( hb_stackLocalVariable( iLocal ), ( HB_SHORT ) iAdd );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_localnearaddint( int iLocal, int iAdd )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmAddInt( hb_stackLocalVariable( iLocal ), ( HB_SHORT ) iAdd );
+   return ( int ) hb_stackGetActionRequest();
+}
+

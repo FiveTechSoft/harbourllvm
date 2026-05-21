@@ -72,6 +72,36 @@ extern HB_EXPORT int hb_vmsh_retvalue( void );
  * request (a non-logical top item raises an error -> non-zero request). */
 extern HB_EXPORT int hb_vmsh_poplogical( HB_BOOL * pfValue );
 
+/* --- group A: FOR loops + compound assignment --- */
+extern HB_EXPORT int hb_vmsh_fortest( void );
+extern HB_EXPORT int hb_vmsh_inc( void );
+extern HB_EXPORT int hb_vmsh_dec( void );
+extern HB_EXPORT int hb_vmsh_duplunref( void );
+extern HB_EXPORT int hb_vmsh_pushunref( void );
+extern HB_EXPORT int hb_vmsh_pluseqpop( void );
+extern HB_EXPORT int hb_vmsh_minuseqpop( void );
+extern HB_EXPORT int hb_vmsh_multeqpop( void );
+extern HB_EXPORT int hb_vmsh_diveqpop( void );
+extern HB_EXPORT int hb_vmsh_modeqpop( void );
+extern HB_EXPORT int hb_vmsh_expeqpop( void );
+extern HB_EXPORT int hb_vmsh_deceqpop( void );
+extern HB_EXPORT int hb_vmsh_inceqpop( void );
+extern HB_EXPORT int hb_vmsh_pluseq( void );
+extern HB_EXPORT int hb_vmsh_minuseq( void );
+extern HB_EXPORT int hb_vmsh_multeq( void );
+extern HB_EXPORT int hb_vmsh_diveq( void );
+extern HB_EXPORT int hb_vmsh_modeq( void );
+extern HB_EXPORT int hb_vmsh_expeq( void );
+extern HB_EXPORT int hb_vmsh_deceq( void );
+extern HB_EXPORT int hb_vmsh_inceq( void );
+extern HB_EXPORT int hb_vmsh_pushlocalref( int iLocal );
+extern HB_EXPORT int hb_vmsh_pushstaticref( int iStatic );
+extern HB_EXPORT int hb_vmsh_localinc( int iLocal );
+extern HB_EXPORT int hb_vmsh_localdec( int iLocal );
+extern HB_EXPORT int hb_vmsh_localincpush( int iLocal );
+extern HB_EXPORT int hb_vmsh_localaddint( int iLocal, int iAdd );
+extern HB_EXPORT int hb_vmsh_localnearaddint( int iLocal, int iAdd );
+
 HB_EXTERN_END
 
 #endif
