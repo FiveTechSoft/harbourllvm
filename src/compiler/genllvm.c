@@ -1257,6 +1257,73 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
          }
 
+         /* Group F: SWITCH — emit a real LLVM switch over the case index.
+          * The shim returns a 0-based case index (caseCount on no match),
+          * NOT an action request, so no epilogue branch is emitted. */
+         case HB_P_SWITCH:
+         {
+            HB_USHORT caseCount = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
+            HB_SIZE   t         = pos + 3;   /* absolute offset of case table */
+            HB_USHORT k;
+
+            /* shim call: pass a pointer into this function's @.pcode global
+             * at the first case entry (pos+3); the shim walks the table. */
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_switchidx("
+                     "i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nPCSize, ( unsigned long ) nPCSize );
+            hb_llvmEmitFuncName( yyc, pFunc->szName );
+            fprintf( yyc, ", i32 0, i32 %lu), i32 %u)\n",
+                     ( unsigned long ) ( pos + 3 ), ( unsigned ) caseCount );
+
+            /* real LLVM switch: default label = fall-through after the
+             * SWITCH (the shim's no-match return value caseCount is not in
+             * [0, caseCount-1], so it routes to the default). */
+            fprintf( yyc, "  switch i32 %%r%lu, label %%%s [\n",
+                     ( unsigned long ) pos, szNextLabel );
+
+            for( k = 0; k < caseCount; ++k )
+            {
+               HB_SIZE litLen;
+               HB_SIZE jmpOff;
+               HB_ISIZ disp;
+               HB_ISIZ target;
+
+               switch( pCode[ t ] )      /* literal-push opcode of the entry */
+               {
+                  case HB_P_PUSHLONG:
+                     litLen = 5;
+                     break;
+                  case HB_P_PUSHSTRSHORT:
+                     litLen = ( HB_SIZE ) 2 + pCode[ t + 1 ];
+                     break;
+                  default:                /* HB_P_PUSHNIL — default clause */
+                     litLen = 1;
+                     break;
+               }
+               jmpOff = t + litLen;      /* absolute offset of the jump opcode */
+               disp   = hb_pcodeJumpOffset( &pCode[ jmpOff ] );
+               target = ( HB_ISIZ ) jmpOff + disp;
+
+               if( target < 0 || ( HB_SIZE ) target >= nPCSize )
+                  fprintf( yyc, "    i32 %u, label %%epilogue\n",
+                           ( unsigned ) k );
+               else
+                  fprintf( yyc, "    i32 %u, label %%i%ld\n",
+                           ( unsigned ) k, ( long ) target );
+
+               switch( pCode[ jmpOff ] ) /* skip past the jump opcode */
+               {
+                  case HB_P_JUMPNEAR: t = jmpOff + 2; break;
+                  case HB_P_JUMPFAR:  t = jmpOff + 4; break;
+                  default:            t = jmpOff + 3; break; /* HB_P_JUMP */
+               }
+            }
+            fprintf( yyc, "  ]\n" );
+            break;
+         }
+
          default:
             /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
             break;
@@ -1409,6 +1476,8 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_enumnext()\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_enumprev()\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_enumend()\n" );
+   /* Group F: SWITCH shim declaration */
+   fprintf( yyc, "declare i32 @hb_vmsh_switchidx(i8*, i32)\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
