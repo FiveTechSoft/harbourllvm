@@ -764,6 +764,11 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          case HB_P_WITHOBJECTEND:  HB_EMIT_NOARG_SHIM( "withobjectend" );  break;
          case HB_P_FUNCPTR:        HB_EMIT_NOARG_SHIM( "funcptr" );        break;
 
+         /* Group E: FOR EACH — 3 no-operand shims */
+         case HB_P_ENUMNEXT:        HB_EMIT_NOARG_SHIM( "enumnext" );        break;
+         case HB_P_ENUMPREV:        HB_EMIT_NOARG_SHIM( "enumprev" );        break;
+         case HB_P_ENUMEND:         HB_EMIT_NOARG_SHIM( "enumend" );         break;
+
 #undef HB_EMIT_NOARG_SHIM
 
          /* Group A: 2 ref-push opcodes (2-byte index operand) */
@@ -1237,6 +1242,21 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
          }
 
+         /* Group E: FOR EACH — ENUMSTART (two 1-byte unsigned operands) */
+         case HB_P_ENUMSTART:
+         {
+            unsigned uiVars    = ( unsigned ) pCode[ pos + 1 ];
+            unsigned uiDescend = ( unsigned ) pCode[ pos + 2 ];
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_enumstart(i32 %u, i32 %u)\n"
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     ( unsigned long ) pos, uiVars, uiDescend,
+                     ( unsigned long ) pos, ( unsigned long ) pos,
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+         }
+
          default:
             /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
             break;
@@ -1384,6 +1404,11 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_message(%%HB_SYMB*)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_withobjectmessage(%%HB_SYMB*)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_send(i32)\n" );
+   /* Group E: FOR EACH shim declarations */
+   fprintf( yyc, "declare i32 @hb_vmsh_enumstart(i32, i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_enumnext()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_enumprev()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_enumend()\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
