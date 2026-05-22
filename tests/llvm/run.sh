@@ -133,15 +133,15 @@ for prg in tests/llvm/*.prg; do
          elif [ "$has_fallback" -gt 0 ]; then
             # Check if this program is required to straight-line.
             # Group A (loop/compound/forstep/arrays), B (arraylit/hashlit/arraydim),
-            # C (memvar/dbfield), D (oop), and E (foreach) corpus programs must NOT
-            # fall back — hard failure.
+            # C (memvar/dbfield), D (oop), E (foreach), and F (switchstmt) corpus
+            # programs must NOT fall back — hard failure.
             case "$name" in
                loop|compound|forstep|compound2|forstep_var|\
                arraylit|hashlit|arraydim|\
                arraymdim|arrayref|\
                memvar|dbfield|\
                oop|oopclass|\
-               foreach)
+               foreach|switchstmt)
                   status_sl="FAIL"
                   sl_note="FAIL: HB_FUN_MAIN fell back to hb_vmExecute — expected straight-line for $name"
                   ;;
