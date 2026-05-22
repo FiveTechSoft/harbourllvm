@@ -13447,3 +13447,33 @@ HB_EXPORT int hb_vmsh_send( int uiParams )
    return ( int ) hb_stackGetActionRequest();
 }
 
+/* --- group E: FOR EACH --- */
+
+HB_EXPORT int hb_vmsh_enumstart( int nVars, int nDescend )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmEnumStart( ( unsigned char ) nVars, ( unsigned char ) nDescend );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_enumnext( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmEnumNext();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_enumprev( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmEnumPrev();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_enumend( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmEnumEnd();
+   return ( int ) hb_stackGetActionRequest();
+}
+

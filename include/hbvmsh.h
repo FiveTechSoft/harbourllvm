@@ -137,6 +137,12 @@ extern HB_EXPORT int hb_vmsh_message( PHB_SYMB pSym );
 extern HB_EXPORT int hb_vmsh_withobjectmessage( PHB_SYMB pSym );
 extern HB_EXPORT int hb_vmsh_send( int uiParams );
 
+/* --- group E: FOR EACH --- */
+extern HB_EXPORT int hb_vmsh_enumstart( int nVars, int nDescend );
+extern HB_EXPORT int hb_vmsh_enumnext( void );
+extern HB_EXPORT int hb_vmsh_enumprev( void );
+extern HB_EXPORT int hb_vmsh_enumend( void );
+
 HB_EXTERN_END
 
 #endif
