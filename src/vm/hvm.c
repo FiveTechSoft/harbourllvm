@@ -13477,3 +13477,60 @@ HB_EXPORT int hb_vmsh_enumend( void )
    return ( int ) hb_stackGetActionRequest();
 }
 
+/* --- group F: SWITCH --- */
+
+HB_EXPORT int hb_vmsh_switchidx( const unsigned char * pTable, int caseCount )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pSwitch = hb_vmSwitchGet();
+   int      iIdx    = caseCount;   /* default: no case matched */
+
+   if( pSwitch )
+   {
+      int i;
+      for( i = 0; i < caseCount; ++i )
+      {
+         HB_BOOL fFound = HB_FALSE;
+
+         /* literal-push opcode of this case entry */
+         switch( pTable[ 0 ] )
+         {
+            case HB_P_PUSHLONG:
+               if( HB_IS_NUMINT( pSwitch ) )
+                  fFound = HB_ITEM_GET_NUMINTRAW( pSwitch ) ==
+                           HB_PCODE_MKLONG( &pTable[ 1 ] );
+               pTable += 5;
+               break;
+            case HB_P_PUSHSTRSHORT:
+               if( HB_IS_STRING( pSwitch ) )
+                  fFound = ( HB_SIZE ) pTable[ 1 ] - 1 == pSwitch->item.asString.length &&
+                           memcmp( pSwitch->item.asString.value, &pTable[ 2 ],
+                                   pSwitch->item.asString.length ) == 0;
+               pTable += 2 + pTable[ 1 ];
+               break;
+            case HB_P_PUSHNIL:
+               fFound = HB_TRUE;
+               pTable++;
+               break;
+         }
+
+         /* jump opcode of this case entry — skip its bytes only */
+         switch( pTable[ 0 ] )
+         {
+            case HB_P_JUMPNEAR: pTable += 2; break;
+            case HB_P_JUMP:     pTable += 3; break;
+            case HB_P_JUMPFAR:  pTable += 4; break;
+         }
+
+         if( fFound )
+         {
+            iIdx = i;
+            break;
+         }
+      }
+   }
+
+   hb_stackPop();
+   return iIdx;
+}
+

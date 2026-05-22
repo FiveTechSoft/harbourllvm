@@ -143,6 +143,16 @@ extern HB_EXPORT int hb_vmsh_enumnext( void );
 extern HB_EXPORT int hb_vmsh_enumprev( void );
 extern HB_EXPORT int hb_vmsh_enumend( void );
 
+/* --- group F: SWITCH --- */
+/* Walk the SWITCH case table (pTable points at the first case entry, i.e.
+ * the bytes after the 3-byte HB_P_SWITCH header). Returns the 0-based index
+ * of the first matching case, or caseCount if none matches. Pops the switch
+ * selector from the stack, exactly as the interpreter's hb_vmSwitch does.
+ * Unlike the other hb_vmsh_* shims this returns a case index, not an action
+ * request — it runs no user code and cannot set one. */
+extern HB_EXPORT int hb_vmsh_switchidx( const unsigned char * pTable,
+                                        int caseCount );
+
 HB_EXTERN_END
 
 #endif
