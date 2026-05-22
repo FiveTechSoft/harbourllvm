@@ -81,7 +81,7 @@ for prg in tests/llvm/*.prg; do
    status_ir="ok"; status_run="ok"; note=""
 
    # --- 2. LLVM backend: emit IR text ---
-   if ! "$HB" -GL -q -o"$OUT/${name}_ll" "$prg" 2> "$OUT/${name}.harbour.log"; then
+   if ! "$HB" -GL -q -i"$ROOT/include" -o"$OUT/${name}_ll" "$prg" 2> "$OUT/${name}.harbour.log"; then
       status_ir="FAIL"; note="harbour -GL failed"
    fi
 
@@ -139,7 +139,7 @@ for prg in tests/llvm/*.prg; do
                arraylit|hashlit|arraydim|\
                arraymdim|arrayref|\
                memvar|dbfield|\
-               oop)
+               oop|oopclass)
                   status_sl="FAIL"
                   sl_note="FAIL: HB_FUN_MAIN fell back to hb_vmExecute — expected straight-line for $name"
                   ;;
@@ -163,7 +163,7 @@ for prg in tests/llvm/*.prg; do
 
    # --- 1. C backend reference build (gtstd: non-interactive, CI-safe) ---
    if [ "$status_ir" = "ok" ]; then
-      if ! "$HBMK2" -q -gtstd -o"$OUT/${name}_c" "$prg" \
+      if ! "$HBMK2" -q -gtstd -i"$ROOT/include" -o"$OUT/${name}_c" "$prg" \
             2> "$OUT/${name}.cbuild.log"; then
          status_run="FAIL"; note="C backend build failed"
       fi
