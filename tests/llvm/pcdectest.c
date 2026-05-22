@@ -13,6 +13,8 @@
  * Expected:
  *   pcdec: 4 instructions, all boundaries correct
  *   pcdec: jump analysis correct
+ *   pcdec: HB_P_SWITCH length correct
+ *   pcdec: HB_P_PUSHBLOCK* supported
  */
 
 #include "hb_pcdec.h"
@@ -84,8 +86,12 @@ int main( void )
    {
       /* Group G: the three PUSHBLOCK* opcodes are now in the straight-line
        * subset, and a PUSHBLOCKSHORT's length is its 1-byte size operand. */
-      HB_BYTE blk[] = { HB_P_PUSHBLOCKSHORT, 4, HB_P_PUSHNIL, HB_P_ENDBLOCK };
+      HB_BYTE blk[]  = { HB_P_PUSHBLOCKSHORT, 4, HB_P_PUSHNIL, HB_P_ENDBLOCK };
+      HB_BYTE blk2[] = { HB_P_PUSHBLOCK, 5, 0, HB_P_PUSHNIL, HB_P_ENDBLOCK };
+      HB_BYTE blk3[] = { HB_P_PUSHBLOCKLARGE, 5, 0, 0, HB_P_ENDBLOCK };
       assert( hb_pcodeInstrLen( blk ) == 4 );
+      assert( hb_pcodeInstrLen( blk2 ) == 5 );   /* 2-byte MKUSHORT size operand */
+      assert( hb_pcodeInstrLen( blk3 ) == 5 );   /* 3-byte MKUINT24 size operand */
       assert( hb_pcInfo[ HB_P_PUSHBLOCK      ].fSupported );
       assert( hb_pcInfo[ HB_P_PUSHBLOCKSHORT ].fSupported );
       assert( hb_pcInfo[ HB_P_PUSHBLOCKLARGE ].fSupported );
