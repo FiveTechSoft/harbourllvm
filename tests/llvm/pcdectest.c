@@ -81,5 +81,16 @@ int main( void )
       printf( "pcdec: HB_P_SWITCH length correct\n" );
    }
 
+   {
+      /* Group G: the three PUSHBLOCK* opcodes are now in the straight-line
+       * subset, and a PUSHBLOCKSHORT's length is its 1-byte size operand. */
+      HB_BYTE blk[] = { HB_P_PUSHBLOCKSHORT, 4, HB_P_PUSHNIL, HB_P_ENDBLOCK };
+      assert( hb_pcodeInstrLen( blk ) == 4 );
+      assert( hb_pcInfo[ HB_P_PUSHBLOCK      ].fSupported );
+      assert( hb_pcInfo[ HB_P_PUSHBLOCKSHORT ].fSupported );
+      assert( hb_pcInfo[ HB_P_PUSHBLOCKLARGE ].fSupported );
+      printf( "pcdec: HB_P_PUSHBLOCK* supported\n" );
+   }
+
    return 0;
 }

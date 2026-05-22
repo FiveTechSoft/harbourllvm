@@ -77,6 +77,9 @@
  *
  * Group F additions (SWITCH):
  *   HB_P_SWITCH
+ *
+ * Group G additions (codeblocks):
+ *   HB_P_PUSHBLOCK, HB_P_PUSHBLOCKSHORT, HB_P_PUSHBLOCKLARGE
  */
 
 /* Compile-time size check — must have exactly HB_P_LAST_PCODE entries. */
@@ -173,8 +176,8 @@ const HB_PCINFO hb_pcInfo[] =
    /* 86 HB_P_PUSHALIASEDFIELD*/{HB_PCK_FIXED,     3,  HB_TRUE  },
    /* 87 HB_P_PUSHALIASEDFIELDNEAR*/{HB_PCK_FIXED, 2,  HB_TRUE  },
    /* 88 HB_P_PUSHALIASEDVAR */ { HB_PCK_FIXED,    3,  HB_TRUE  },
-   /* 89 HB_P_PUSHBLOCK      */ { HB_PCK_VARBLOCK, 0,  HB_FALSE }, /* 2-byte size operand */
-   /* 90 HB_P_PUSHBLOCKSHORT */ { HB_PCK_VARBLOCK, 0,  HB_FALSE }, /* 1-byte size operand */
+   /* 89 HB_P_PUSHBLOCK      */ { HB_PCK_VARBLOCK, 0,  HB_TRUE  }, /* 2-byte size operand */
+   /* 90 HB_P_PUSHBLOCKSHORT */ { HB_PCK_VARBLOCK, 0,  HB_TRUE  }, /* 1-byte size operand */
    /* 91 HB_P_PUSHFIELD      */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 92 HB_P_PUSHBYTE       */ { HB_PCK_FIXED,    2,  HB_TRUE  },
    /* 93 HB_P_PUSHINT        */ { HB_PCK_FIXED,    3,  HB_TRUE  },
@@ -245,7 +248,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 158 HB_P_DUPLUNREF     */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 159 HB_P_MPUSHBLOCKLARGE*/{HB_PCK_VARBLOCK,  0,  HB_FALSE }, /* 3-byte size operand */
    /* 160 HB_P_MPUSHSTRLARGE */ { HB_PCK_STR3,     0,  HB_FALSE }, /* 3-byte length prefix, macro-compiled string */
-   /* 161 HB_P_PUSHBLOCKLARGE*/ { HB_PCK_VARBLOCK, 0,  HB_FALSE }, /* 3-byte size operand */
+   /* 161 HB_P_PUSHBLOCKLARGE*/ { HB_PCK_VARBLOCK, 0,  HB_TRUE  }, /* 3-byte size operand */
    /* 162 HB_P_PUSHSTRLARGE  */ { HB_PCK_STR3,     0,  HB_TRUE  }, /* 3-byte length prefix */
    /* 163 HB_P_SWAP          */ { HB_PCK_FIXED,    2,  HB_FALSE },
    /* 164 HB_P_PUSHVPARAMS   */ { HB_PCK_FIXED,    1,  HB_FALSE },
