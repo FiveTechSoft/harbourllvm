@@ -35,6 +35,7 @@ straight to a native binary and links against the precompiled Harbour runtime
 | C — RDD fields, memvars, aliases | Straight-line IR for database-field access, memvars, undeclared variables, aliased access, workarea selection. | **done** |
 | D — OOP messages | Straight-line IR for method calls (`oObj:method()`), `Self`, object-variable references, `WITH OBJECT` blocks. | **done** |
 | E — FOR EACH | Straight-line IR for `FOR EACH ... NEXT` loops (and `DESCEND`) over arrays, hashes, strings. | **done** |
+| F — SWITCH | Straight-line IR for `SWITCH` statements — a real LLVM `switch` over the matched case index. | **done** |
 
 Plan 2 (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API to
 turn its IR into a native object file and embeds the LLD linker (via a small
@@ -54,14 +55,15 @@ whole-function, to the interpreter, so every program stays correct. This
 removes the dispatch overhead; type specialization (the larger speedup) is
 possible future work.
 
-Opcode groups A–E extend the straight-line subset: group A covers FOR loops
+Opcode groups A–F extend the straight-line subset: group A covers FOR loops
 (`FOR..NEXT`, `FOR..STEP`) and the compound-assignment / increment-decrement
 operators; group B covers array and hash literals, element access and
 assignment, and array creation; group C covers database-field access, memory
 variables, undeclared variables, aliased access, and workarea selection; group
 D covers OOP message sends (`oObj:method()`), `Self`, object-variable
 references, and `WITH OBJECT` blocks; group E covers `FOR EACH` loops over
-arrays, hashes and strings. Further opcode groups (SWITCH, codeblocks, macros,
+arrays, hashes and strings; group F covers `SWITCH` statements, lowered to a
+native LLVM `switch` instruction. Further opcode groups (codeblocks, macros,
 SEQUENCE) are planned, each as its own spec.
 
 The full design and step-by-step plans live in
