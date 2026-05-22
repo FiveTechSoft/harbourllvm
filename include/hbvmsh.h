@@ -153,6 +153,15 @@ extern HB_EXPORT int hb_vmsh_enumend( void );
 extern HB_EXPORT int hb_vmsh_switchidx( const unsigned char * pTable,
                                         int caseCount );
 
+/* --- group G: codeblocks --- */
+/* Construct a codeblock value from a PUSHBLOCK* instruction and push it on
+ * the stack, exactly as the interpreter's HB_P_PUSHBLOCK* cases do. pCode
+ * points at the PUSHBLOCK* opcode byte itself; pSymbols is the module symbol
+ * table. Runs no user code (the block body executes later, on Eval) and so
+ * cannot set an action request — always returns 0. */
+extern HB_EXPORT int hb_vmsh_pushblock( const unsigned char * pCode,
+                                        PHB_SYMB pSymbols );
+
 HB_EXTERN_END
 
 #endif

@@ -13534,3 +13534,23 @@ HB_EXPORT int hb_vmsh_switchidx( const unsigned char * pTable, int caseCount )
    return iIdx;
 }
 
+/* --- group G: codeblocks --- */
+
+HB_EXPORT int hb_vmsh_pushblock( const unsigned char * pCode,
+                                 PHB_SYMB pSymbols )
+{
+   switch( pCode[ 0 ] )
+   {
+      case HB_P_PUSHBLOCK:
+         hb_vmPushBlock( pCode + 3, pSymbols, 0 );
+         break;
+      case HB_P_PUSHBLOCKLARGE:
+         hb_vmPushBlock( pCode + 4, pSymbols, 0 );
+         break;
+      case HB_P_PUSHBLOCKSHORT:
+         hb_vmPushBlockShort( pCode + 2, pSymbols, 0 );
+         break;
+   }
+   return 0;
+}
+
