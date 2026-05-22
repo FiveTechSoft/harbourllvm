@@ -71,6 +71,9 @@
  *   HB_P_SEND, HB_P_SENDSHORT,
  *   HB_P_WITHOBJECTSTART, HB_P_WITHOBJECTMESSAGE, HB_P_WITHOBJECTEND,
  *   HB_P_PUSHOVARREF
+ *
+ * Group E additions (FOR EACH loops):
+ *   HB_P_ENUMSTART, HB_P_ENUMNEXT, HB_P_ENUMPREV, HB_P_ENUMEND
  */
 
 /* Compile-time size check — must have exactly HB_P_LAST_PCODE entries. */
@@ -207,10 +210,10 @@ const HB_PCINFO hb_pcInfo[] =
    /* 126 HB_P_LOCALNEARADDINT*/{HB_PCK_FIXED,     4,  HB_TRUE  },
    /* 127 HB_P_MACROPUSHREF  */ { HB_PCK_FIXED,    1,  HB_FALSE },
    /* 128 HB_P_PUSHLONGLONG  */ { HB_PCK_FIXED,    9,  HB_TRUE  },
-   /* 129 HB_P_ENUMSTART     */ { HB_PCK_FIXED,    3,  HB_FALSE },
-   /* 130 HB_P_ENUMNEXT      */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 131 HB_P_ENUMPREV      */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 132 HB_P_ENUMEND       */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 129 HB_P_ENUMSTART     */ { HB_PCK_FIXED,    3,  HB_TRUE  },
+   /* 130 HB_P_ENUMNEXT      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
+   /* 131 HB_P_ENUMPREV      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
+   /* 132 HB_P_ENUMEND       */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 133 HB_P_SWITCH        */ { HB_PCK_UNKNOWN,  0,  HB_FALSE }, /* variable: hb_vmSwitch table */
    /* 134 HB_P_PUSHDATE      */ { HB_PCK_FIXED,    5,  HB_FALSE },
    /* 135 HB_P_PLUSEQPOP     */ { HB_PCK_FIXED,    1,  HB_TRUE  },
