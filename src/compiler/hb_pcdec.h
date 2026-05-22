@@ -21,6 +21,7 @@ typedef enum
    HB_PCK_STR2,      /* 2-byte length prefix then string data               */
    HB_PCK_STR3,      /* 3-byte length prefix then string data               */
    HB_PCK_VARBLOCK,  /* HB_P_PUSHBLOCK family: size is the operand          */
+   HB_PCK_SWITCH,    /* HB_P_SWITCH: header + variable case table            */
    HB_PCK_UNKNOWN    /* not modelled — forces whole-function fallback        */
 } HB_PCKIND;
 

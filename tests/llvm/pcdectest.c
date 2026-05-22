@@ -69,5 +69,17 @@ int main( void )
       printf( "pcdec: jump analysis correct\n" );
    }
 
+   {
+      /* HB_P_SWITCH, count=1, [ PUSHLONG 7 , JUMP +0 ] -> total 11 bytes */
+      HB_BYTE sw[] = {
+         HB_P_SWITCH, 1, 0,
+         HB_P_PUSHLONG, 7, 0, 0, 0,
+         HB_P_JUMP, 0, 0
+      };
+      HB_SIZE len = hb_pcodeInstrLen( sw );
+      assert( len == 11 );
+      printf( "pcdec: HB_P_SWITCH length correct\n" );
+   }
+
    return 0;
 }

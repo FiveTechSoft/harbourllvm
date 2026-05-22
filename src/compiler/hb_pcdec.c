@@ -74,6 +74,9 @@
  *
  * Group E additions (FOR EACH loops):
  *   HB_P_ENUMSTART, HB_P_ENUMNEXT, HB_P_ENUMPREV, HB_P_ENUMEND
+ *
+ * Group F additions (SWITCH):
+ *   HB_P_SWITCH
  */
 
 /* Compile-time size check — must have exactly HB_P_LAST_PCODE entries. */
@@ -214,7 +217,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 130 HB_P_ENUMNEXT      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 131 HB_P_ENUMPREV      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 132 HB_P_ENUMEND       */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 133 HB_P_SWITCH        */ { HB_PCK_UNKNOWN,  0,  HB_FALSE }, /* variable: hb_vmSwitch table */
+   /* 133 HB_P_SWITCH        */ { HB_PCK_SWITCH,   0,  HB_TRUE  }, /* variable: hb_vmSwitch table */
    /* 134 HB_P_PUSHDATE      */ { HB_PCK_FIXED,    5,  HB_FALSE },
    /* 135 HB_P_PLUSEQPOP     */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 136 HB_P_MINUSEQPOP    */ { HB_PCK_FIXED,    1,  HB_TRUE  },
@@ -291,6 +294,31 @@ HB_SIZE hb_pcodeInstrLen( const HB_BYTE * pCode )
       case HB_PCK_STR3:
          /* opcode (1) + 3-byte length (3) + length bytes of data */
          return ( HB_SIZE ) 4 + HB_PCODE_MKUINT24( &pCode[ 1 ] );
+      case HB_PCK_SWITCH:
+      {
+         /* [opcode][caseCount:2][N entries]; each entry = literal + jump */
+         HB_USHORT       count = HB_PCODE_MKUSHORT( &pCode[ 1 ] );
+         const HB_BYTE * p     = pCode + 3;
+         HB_USHORT       k;
+         for( k = 0; k < count; ++k )
+         {
+            switch( p[ 0 ] )          /* literal-push opcode */
+            {
+               case HB_P_PUSHLONG:      p += 5;             break;
+               case HB_P_PUSHSTRSHORT:  p += 2 + p[ 1 ];    break;
+               case HB_P_PUSHNIL:       p += 1;             break;
+               default:                 return 0;  /* malformed */
+            }
+            switch( p[ 0 ] )          /* jump opcode */
+            {
+               case HB_P_JUMPNEAR:      p += 2;  break;
+               case HB_P_JUMP:          p += 3;  break;
+               case HB_P_JUMPFAR:       p += 4;  break;
+               default:                 return 0;  /* malformed */
+            }
+         }
+         return ( HB_SIZE ) ( p - pCode );
+      }
       case HB_PCK_VARBLOCK:
          /* HB_P_PUSHBLOCKSHORT  (90): 1-byte total-size operand
           * HB_P_PUSHBLOCK       (89): 2-byte total-size operand
