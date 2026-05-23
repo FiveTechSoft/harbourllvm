@@ -1331,6 +1331,7 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          case HB_P_PUSHBLOCK:
          case HB_P_PUSHBLOCKSHORT:
          case HB_P_PUSHBLOCKLARGE:
+            /* shim always returns 0 — %r<pos> is intentionally unused */
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushblock("
                      "i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
