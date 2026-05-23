@@ -162,10 +162,92 @@ static HB_ULONG hb_llvmScopeFlags( HB_COMP_DECL, PHB_HSYMBOL pSym )
  *   (the caller passes the same *piStrIdx value at the start of the function).
  * ------------------------------------------------------------------------- */
 
+/* Group I: compile-time SEQUENCE region tracking, used by hb_llvmSLEmitBody
+ * and the dispatch helper. Pushed on HB_P_SEQBEGIN/HB_P_SEQALWAYS, popped
+ * on HB_P_SEQEND/HB_P_ALWAYSEND. Max depth 16 — deeper nesting forces
+ * fallback via hb_llvmSLPrecheck. */
+struct hb_seq_region
+{
+   HB_SIZE  recover_pos;   /* in-function pcode offset of SEQRECOVER (BREAK target) or ALWAYSEND (ALWAYS BREAK target) */
+   HB_SIZE  always_pos;    /* in-function pcode offset of ALWAYSEND (QUIT target); 0 if not an ALWAYS region */
+   HB_BOOL  fIsAlways;
+};
+
+/* Group I: emit the action-request branch for a shim call at `pos`.
+ *
+ * Outside any SEQUENCE region (seq_depth == 0): emit the standard
+ *   "%c = icmp ne i32 %r, 0; br i1 %c, label %epilogue, label %<next>"
+ *   shape — identical to what every shim site emitted before group I.
+ *
+ * Inside an active region (seq_depth > 0): emit a per-shim dispatch block
+ *   that distinguishes HB_BREAK_REQUESTED (=2) from HB_QUIT_REQUESTED (=1)
+ *   and routes BREAK to the topmost RECOVER target, QUIT to the topmost
+ *   ALWAYS target, anything else (including HB_ENDPROC_REQUESTED) to
+ *   %epilogue. If there is no enclosing ALWAYS region, the QUIT branch
+ *   collapses straight to %epilogue. */
+static void hb_llvmSLEmitActionCheck( FILE * yyc, HB_SIZE pos,
+                                       const char * szNextLabel,
+                                       struct hb_seq_region * seq_stack,
+                                       int seq_depth )
+{
+   if( seq_depth == 0 )
+   {
+      fprintf( yyc,
+               "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+               "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+               ( unsigned long ) pos, ( unsigned long ) pos,
+               ( unsigned long ) pos, szNextLabel );
+   }
+   else
+   {
+      HB_SIZE recover_target = ( HB_SIZE ) -1;
+      HB_SIZE always_target  = ( HB_SIZE ) -1;
+      int i;
+      for( i = seq_depth - 1; i >= 0; --i )
+      {
+         if( recover_target == ( HB_SIZE ) -1 )
+            recover_target = seq_stack[ i ].recover_pos;
+         if( always_target == ( HB_SIZE ) -1 && seq_stack[ i ].fIsAlways )
+            always_target = seq_stack[ i ].always_pos;
+         if( recover_target != ( HB_SIZE ) -1 && always_target != ( HB_SIZE ) -1 )
+            break;
+      }
+      fprintf( yyc,
+               "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
+               "  br i1 %%c%lu, label %%seqd%lu, label %%%s\n"
+               "seqd%lu:\n"
+               "  %%brk%lu = icmp eq i32 %%r%lu, 2\n"     /* HB_BREAK_REQUESTED */
+               "  br i1 %%brk%lu, label %%i%lu, label %%seqq%lu\n"
+               "seqq%lu:\n",
+               ( unsigned long ) pos, ( unsigned long ) pos,
+               ( unsigned long ) pos, ( unsigned long ) pos, szNextLabel,
+               ( unsigned long ) pos,
+               ( unsigned long ) pos, ( unsigned long ) pos,
+               ( unsigned long ) pos, ( unsigned long ) recover_target,
+               ( unsigned long ) pos,
+               ( unsigned long ) pos );
+      if( always_target != ( HB_SIZE ) -1 )
+      {
+         fprintf( yyc,
+                  "  %%qit%lu = icmp eq i32 %%r%lu, 1\n"    /* HB_QUIT_REQUESTED */
+                  "  br i1 %%qit%lu, label %%i%lu, label %%epilogue\n",
+                  ( unsigned long ) pos, ( unsigned long ) pos,
+                  ( unsigned long ) pos, ( unsigned long ) always_target );
+      }
+      else
+      {
+         fprintf( yyc, "  br label %%epilogue\n" );
+      }
+   }
+}
+
 /* Pass A */
 static HB_BOOL hb_llvmSLPrecheck( PHB_HFUNC pFunc, HB_PCMAP * pMap )
 {
-   if( ! hb_pcodeAnalyze( pFunc->pCode, pFunc->nPCodePos, pMap ) )
+   const HB_BYTE * pCode   = pFunc->pCode;
+   HB_SIZE         nPCSize = pFunc->nPCodePos;
+
+   if( ! hb_pcodeAnalyze( pCode, nPCSize, pMap ) )
       return HB_FALSE;
    if( ! pMap->fAllSupported )
    {
@@ -173,6 +255,29 @@ static HB_BOOL hb_llvmSLPrecheck( PHB_HFUNC pFunc, HB_PCMAP * pMap )
       pMap->abLeader = NULL;
       return HB_FALSE;
    }
+
+   /* Group I: bail if SEQUENCE/ALWAYS nesting exceeds the emitter's stack. */
+   {
+      HB_SIZE  off = 0;
+      int      depth = 0;
+      while( off < nPCSize )
+      {
+         HB_BYTE op = pCode[ off ];
+         if( op == HB_P_SEQBEGIN || op == HB_P_SEQALWAYS )
+         {
+            if( ++depth > 16 )
+            {
+               hb_xfree( pMap->abLeader );
+               pMap->abLeader = NULL;
+               return HB_FALSE;
+            }
+         }
+         else if( op == HB_P_SEQEND || op == HB_P_ALWAYSEND )
+            depth--;
+         off += hb_pcodeInstrLen( &pCode[ off ] );
+      }
+   }
+
    return HB_TRUE;
 }
 
@@ -258,6 +363,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
    HB_SIZE         len;
    HB_SIZE         nextOff;
    int             iLocalStr = iStrBase;  /* tracks @.sl.str index per opcode */
+
+   /* Group I: compile-time SEQUENCE region tracking */
+   struct hb_seq_region seq_stack[ 16 ];
+   int seq_depth = 0;
 
    /* -----------------------------------------------------------------------
     * entry: block — emit all alloca slots for conditional-jump logicals first
@@ -387,59 +496,46 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
 
          case HB_P_PUSHNIL:
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushnil()\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushnil()\n",
+                     ( unsigned long ) pos );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
 
          case HB_P_TRUE:
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushlogical(i32 1)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushlogical(i32 1)\n",
+                     ( unsigned long ) pos );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
 
          case HB_P_FALSE:
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushlogical(i32 0)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushlogical(i32 0)\n",
+                     ( unsigned long ) pos );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
 
          case HB_P_ZERO:
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 0)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 0)\n",
+                     ( unsigned long ) pos );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
 
          case HB_P_ONE:
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 1)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 1)\n",
+                     ( unsigned long ) pos );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
 
          case HB_P_PUSHBYTE:
          {
             int iVal = ( int ) ( signed char ) pCode[ pos + 1 ];
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, iVal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 %d)\n",
+                     ( unsigned long ) pos, iVal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -447,12 +543,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             int iVal = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, iVal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushint(i32 %d)\n",
+                     ( unsigned long ) pos, iVal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -460,12 +553,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_LONG nVal = HB_PCODE_MKLONG( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushlong(i64 %ld)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( long ) nVal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushlong(i64 %ld)\n",
+                     ( unsigned long ) pos, ( long ) nVal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -473,12 +563,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_LONGLONG nVal = HB_PCODE_MKLONGLONG( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushlonglong(i64 %lld)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( long long ) nVal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushlonglong(i64 %lld)\n",
+                     ( unsigned long ) pos, ( long long ) nVal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -491,14 +578,11 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             /* Use memcpy to type-pun safely (avoids strict-aliasing UB). */
             memcpy( &uBits, &dVal, sizeof( uBits ) );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushdouble(double 0x%016llX, i32 %d, i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "  %%r%lu = call i32 @hb_vmsh_pushdouble(double 0x%016llX, i32 %d, i32 %d)\n",
                      ( unsigned long ) pos,
                      ( unsigned long long ) uBits,
-                     iW, iD,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iW, iD );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -511,14 +595,11 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushstring("
                      "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
-                     "i64 %lu)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "i64 %lu)\n",
                      ( unsigned long ) pos,
                      ( unsigned long ) nStr, ( unsigned long ) nStr, iIdx,
-                     ( unsigned long ) nPush,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     ( unsigned long ) nPush );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -530,14 +611,11 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushstring("
                      "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
-                     "i64 %lu)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "i64 %lu)\n",
                      ( unsigned long ) pos,
                      ( unsigned long ) nStr, ( unsigned long ) nStr, iIdx,
-                     ( unsigned long ) nPush,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     ( unsigned long ) nPush );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -549,14 +627,11 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushstring("
                      "i8* getelementptr([%lu x i8], [%lu x i8]* @.sl.str.%d, i32 0, i32 0), "
-                     "i64 %lu)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "i64 %lu)\n",
                      ( unsigned long ) pos,
                      ( unsigned long ) nSize, ( unsigned long ) nSize, iIdx,
-                     ( unsigned long ) nPush,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     ( unsigned long ) nPush );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -564,12 +639,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             int iLocal = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushlocal(i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, iLocal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushlocal(i32 %d)\n",
+                     ( unsigned long ) pos, iLocal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -577,12 +649,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             int iLocal = ( int ) ( signed char ) pCode[ pos + 1 ];
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushlocal(i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, iLocal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushlocal(i32 %d)\n",
+                     ( unsigned long ) pos, iLocal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -590,12 +659,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             int iLocal = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_poplocal(i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, iLocal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_poplocal(i32 %d)\n",
+                     ( unsigned long ) pos, iLocal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -603,12 +669,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             int iLocal = ( int ) ( signed char ) pCode[ pos + 1 ];
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_poplocal(i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, iLocal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_poplocal(i32 %d)\n",
+                     ( unsigned long ) pos, iLocal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -616,12 +679,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiStatic = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushstatic(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiStatic,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushstatic(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiStatic );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -629,12 +689,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiStatic = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_popstatic(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiStatic,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_popstatic(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiStatic );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -643,38 +700,91 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
-         /* PUSHFUNCSYM: push symbol + push NIL self slot (two shim calls). */
+         /* PUSHFUNCSYM: push symbol + push NIL self slot (two shim calls).
+          * The intermediate (first) action check keeps the old epilogue shape;
+          * only the final check uses the region-aware dispatch. */
          case HB_P_PUSHFUNCSYM:
          {
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
-            /* Sub-block a: push the symbol. */
+            /* Sub-block a: push the symbol (intermediate check — keep old shape). */
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
                      "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
                      "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
                      "  br i1 %%c%lu, label %%epilogue, label %%ipfs%lua\n"
                      "ipfs%lua:\n"
-                     "  %%r%lub = call i32 @hb_vmsh_pushnil()\n"
-                     "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
-                     "  br i1 %%c%lub, label %%epilogue, label %%%s\n",
+                     "  %%r%lub = call i32 @hb_vmsh_pushnil()\n",
                      ( unsigned long ) pos,
                      iSymCount, iSymCount, ( unsigned ) uiSym,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos,
-                     szNextLabel );
+                     ( unsigned long ) pos );
+            /* Use a fake "pos" for the second shim's action check.
+             * We emit %r<pos>b already, so we need a distinct temp name.
+             * Reuse the same pos value but the 'b' variant — we can't call
+             * hb_llvmSLEmitActionCheck directly since it uses %%r%lu internally.
+             * Emit the final check manually, routing through region-aware dispatch. */
+            {
+               /* Build a temporary label name for the "b" sub-check. We emit
+                * the check inline since the register name is %r<pos>b not %r<pos>. */
+               if( seq_depth == 0 )
+               {
+                  fprintf( yyc,
+                           "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
+                           "  br i1 %%c%lub, label %%epilogue, label %%%s\n",
+                           ( unsigned long ) pos, ( unsigned long ) pos,
+                           ( unsigned long ) pos, szNextLabel );
+               }
+               else
+               {
+                  HB_SIZE recover_target = ( HB_SIZE ) -1;
+                  HB_SIZE always_target  = ( HB_SIZE ) -1;
+                  int ii;
+                  for( ii = seq_depth - 1; ii >= 0; --ii )
+                  {
+                     if( recover_target == ( HB_SIZE ) -1 )
+                        recover_target = seq_stack[ ii ].recover_pos;
+                     if( always_target == ( HB_SIZE ) -1 && seq_stack[ ii ].fIsAlways )
+                        always_target = seq_stack[ ii ].always_pos;
+                     if( recover_target != ( HB_SIZE ) -1 && always_target != ( HB_SIZE ) -1 )
+                        break;
+                  }
+                  fprintf( yyc,
+                           "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
+                           "  br i1 %%c%lub, label %%seqdb%lu, label %%%s\n"
+                           "seqdb%lu:\n"
+                           "  %%brkb%lu = icmp eq i32 %%r%lub, 2\n"
+                           "  br i1 %%brkb%lu, label %%i%lu, label %%seqqb%lu\n"
+                           "seqqb%lu:\n",
+                           ( unsigned long ) pos, ( unsigned long ) pos,
+                           ( unsigned long ) pos, ( unsigned long ) pos, szNextLabel,
+                           ( unsigned long ) pos,
+                           ( unsigned long ) pos, ( unsigned long ) pos,
+                           ( unsigned long ) pos, ( unsigned long ) recover_target,
+                           ( unsigned long ) pos,
+                           ( unsigned long ) pos );
+                  if( always_target != ( HB_SIZE ) -1 )
+                  {
+                     fprintf( yyc,
+                              "  %%qitb%lu = icmp eq i32 %%r%lub, 1\n"
+                              "  br i1 %%qitb%lu, label %%i%lu, label %%epilogue\n",
+                              ( unsigned long ) pos, ( unsigned long ) pos,
+                              ( unsigned long ) pos, ( unsigned long ) always_target );
+                  }
+                  else
+                  {
+                     fprintf( yyc, "  br label %%epilogue\n" );
+                  }
+               }
+            }
             break;
          }
 
@@ -683,24 +793,21 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             unsigned uiSym = ( unsigned ) pCode[ pos + 1 ];
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
 #define HB_EMIT_NOARG_SHIM( nm ) \
-            fprintf( yyc, \
-                     "  %%r%lu = call i32 @hb_vmsh_" nm "()\n" \
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n" \
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n", \
-                     ( unsigned long ) pos, \
-                     ( unsigned long ) pos, ( unsigned long ) pos, \
-                     ( unsigned long ) pos, szNextLabel )
+            do { \
+               fprintf( yyc, \
+                        "  %%r%lu = call i32 @hb_vmsh_" nm "()\n", \
+                        ( unsigned long ) pos ); \
+               hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, \
+                                          seq_stack, seq_depth ); \
+            } while( 0 )
 
          case HB_P_PLUS:           HB_EMIT_NOARG_SHIM( "plus" );           break;
          case HB_P_MINUS:          HB_EMIT_NOARG_SHIM( "minus" );          break;
@@ -782,12 +889,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             int iLocal = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushlocalref(i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, iLocal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushlocalref(i32 %d)\n",
+                     ( unsigned long ) pos, iLocal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -795,12 +899,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiStatic = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_pushstaticref(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiStatic,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_pushstaticref(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiStatic );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -809,12 +910,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiLocal = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_localinc(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiLocal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_localinc(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiLocal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -822,12 +920,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiLocal = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_localdec(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiLocal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_localdec(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiLocal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -835,12 +930,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiLocal = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_localincpush(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiLocal,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_localincpush(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiLocal );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -849,12 +941,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiLocal  = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             int       iAddend  = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 3 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_localaddint(i32 %u, i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiLocal, iAddend,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_localaddint(i32 %u, i32 %d)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiLocal, iAddend );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -863,12 +952,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             unsigned uiLocal  = ( unsigned ) pCode[ pos + 1 ];
             int      iAddend  = ( int ) HB_PCODE_MKSHORT( &pCode[ pos + 2 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_localnearaddint(i32 %u, i32 %d)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, uiLocal, iAddend,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_localnearaddint(i32 %u, i32 %d)\n",
+                     ( unsigned long ) pos, uiLocal, iAddend );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -877,12 +963,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             unsigned uiLocals = ( unsigned ) pCode[ pos + 1 ];
             unsigned ucParams = ( unsigned ) pCode[ pos + 2 ];
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_frame(i32 %u, i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, uiLocals, ucParams,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_frame(i32 %u, i32 %u)\n",
+                     ( unsigned long ) pos, uiLocals, ucParams );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -890,12 +973,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiParams = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_function(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiParams,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_function(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiParams );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -903,12 +983,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             unsigned uiParams = ( unsigned ) pCode[ pos + 1 ];
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_function(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, uiParams,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_function(i32 %u)\n",
+                     ( unsigned long ) pos, uiParams );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -916,12 +993,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiParams = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_do(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiParams,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_do(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiParams );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -929,12 +1003,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             unsigned uiParams = ( unsigned ) pCode[ pos + 1 ];
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_do(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, uiParams,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_do(i32 %u)\n",
+                     ( unsigned long ) pos, uiParams );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -943,12 +1014,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiCount = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_arraydim(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiCount,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_arraydim(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiCount );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -956,12 +1024,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiCount = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_arraygen(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiCount,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_arraygen(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiCount );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -969,12 +1034,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiCount = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_hashgen(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiCount,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_hashgen(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiCount );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -984,13 +1046,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushfield(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -999,13 +1058,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_popfield(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1014,13 +1070,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushmemvar(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1029,13 +1082,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushmemvarref(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1044,13 +1094,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_popmemvar(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1059,13 +1106,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushvariable(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1074,13 +1118,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_popvariable(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1089,13 +1130,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushaliasedfield(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1105,13 +1143,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             unsigned uiSym = ( unsigned ) pCode[ pos + 1 ];
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushaliasedfield(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1120,13 +1155,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_popaliasedfield(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1136,13 +1168,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             unsigned uiSym = ( unsigned ) pCode[ pos + 1 ];
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_popaliasedfield(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1151,13 +1180,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushaliasedvar(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1166,13 +1192,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_popaliasedvar(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1182,13 +1205,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_message(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1199,25 +1219,18 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             {
                /* Special sentinel: pass null symbol pointer */
                fprintf( yyc,
-                        "  %%r%lu = call i32 @hb_vmsh_withobjectmessage(%%HB_SYMB* null)\n"
-                        "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                        "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                        ( unsigned long ) pos,
-                        ( unsigned long ) pos, ( unsigned long ) pos,
-                        ( unsigned long ) pos, szNextLabel );
+                        "  %%r%lu = call i32 @hb_vmsh_withobjectmessage(%%HB_SYMB* null)\n",
+                        ( unsigned long ) pos );
             }
             else
             {
                fprintf( yyc,
                         "  %%r%lu = call i32 @hb_vmsh_withobjectmessage(%%HB_SYMB* getelementptr"
-                        "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                        "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                        "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
+                        "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
                         ( unsigned long ) pos,
-                        iSymCount, iSymCount, ( unsigned ) uiSym,
-                        ( unsigned long ) pos, ( unsigned long ) pos,
-                        ( unsigned long ) pos, szNextLabel );
+                        iSymCount, iSymCount, ( unsigned ) uiSym );
             }
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1226,12 +1239,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_USHORT uiParams = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_send(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned ) uiParams,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_send(i32 %u)\n",
+                     ( unsigned long ) pos, ( unsigned ) uiParams );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1239,12 +1249,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             unsigned uiParams = ( unsigned ) pCode[ pos + 1 ];
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_send(i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, uiParams,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_send(i32 %u)\n",
+                     ( unsigned long ) pos, uiParams );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1254,12 +1261,9 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             unsigned uiVars    = ( unsigned ) pCode[ pos + 1 ];
             unsigned uiDescend = ( unsigned ) pCode[ pos + 2 ];
             fprintf( yyc,
-                     "  %%r%lu = call i32 @hb_vmsh_enumstart(i32 %u, i32 %u)\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n",
-                     ( unsigned long ) pos, uiVars, uiDescend,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, szNextLabel );
+                     "  %%r%lu = call i32 @hb_vmsh_enumstart(i32 %u, i32 %u)\n",
+                     ( unsigned long ) pos, uiVars, uiDescend );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
             break;
          }
 
@@ -1354,13 +1358,13 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
 
 #define HB_EMIT_INT1_SHIM( nm, val ) \
-            fprintf( yyc, \
-                     "  %%r%lu = call i32 @hb_vmsh_" nm "(i32 %u)\n" \
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n" \
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n", \
-                     ( unsigned long ) pos, ( unsigned ) ( val ), \
-                     ( unsigned long ) pos, ( unsigned long ) pos, \
-                     ( unsigned long ) pos, szNextLabel )
+            do { \
+               fprintf( yyc, \
+                        "  %%r%lu = call i32 @hb_vmsh_" nm "(i32 %u)\n", \
+                        ( unsigned long ) pos, ( unsigned ) ( val ) ); \
+               hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, \
+                                          seq_stack, seq_depth ); \
+            } while( 0 )
 
          /* Group H: macros — 1-byte flag operand */
          case HB_P_MACROPOP:
@@ -1387,6 +1391,123 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             HB_EMIT_INT1_SHIM( "macrosend",     HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] ) ); break;
 
 #undef HB_EMIT_INT1_SHIM
+
+         /* Group I: SEQUENCE */
+         case HB_P_SEQBEGIN:
+         {
+            HB_ISIZ disp        = HB_PCODE_MKINT24( &pCode[ pos + 1 ] );
+            HB_SIZE recover_pos = ( HB_SIZE )( ( HB_ISIZ ) pos + disp );
+            if( seq_depth >= 16 )
+            {
+               /* Nesting too deep — precheck should have rejected; bail. */
+               fprintf( yyc, "  br label %%epilogue\n" );
+               break;
+            }
+            seq_stack[ seq_depth ].recover_pos = recover_pos;
+            seq_stack[ seq_depth ].always_pos  = 0;
+            seq_stack[ seq_depth ].fIsAlways   = HB_FALSE;
+            seq_depth++;
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_seqbegin("
+                     "i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nPCSize, ( unsigned long ) nPCSize );
+            hb_llvmEmitFuncName( yyc, pFunc->szName );
+            fprintf( yyc, ", i32 0, i32 %lu))\n",
+                     ( unsigned long ) recover_pos );
+            /* shim always returns 0; use standard dispatch (trivially falls through) */
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel,
+                                       seq_stack, seq_depth );
+            break;
+         }
+
+         case HB_P_SEQEND:
+         {
+            HB_ISIZ disp    = HB_PCODE_MKINT24( &pCode[ pos + 1 ] );
+            HB_SIZE end_pos = ( HB_SIZE )( ( HB_ISIZ ) pos + disp );
+            char szEndLabel[ 32 ];
+            if( seq_depth > 0 )
+               seq_depth--;     /* pop region BEFORE emitting action dispatch */
+            if( end_pos >= nPCSize )
+               hb_strncpy( szEndLabel, "epilogue", sizeof( szEndLabel ) - 1 );
+            else
+               hb_snprintf( szEndLabel, sizeof( szEndLabel ), "i%lu",
+                            ( unsigned long ) end_pos );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_seqend()\n"
+                     "  br label %%%s\n",
+                     ( unsigned long ) pos, szEndLabel );
+            break;
+         }
+
+         case HB_P_SEQRECOVER:
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_seqrecover()\n"
+                     "  br label %%%s\n",
+                     ( unsigned long ) pos, szNextLabel );
+            break;
+
+         case HB_P_SEQALWAYS:
+         {
+            HB_ISIZ disp       = HB_PCODE_MKINT24( &pCode[ pos + 1 ] );
+            HB_SIZE always_pos = ( HB_SIZE )( ( HB_ISIZ ) pos + disp );
+            if( seq_depth >= 16 )
+            {
+               fprintf( yyc, "  br label %%epilogue\n" );
+               break;
+            }
+            seq_stack[ seq_depth ].recover_pos = always_pos;
+            seq_stack[ seq_depth ].always_pos  = always_pos;
+            seq_stack[ seq_depth ].fIsAlways   = HB_TRUE;
+            seq_depth++;
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_seqalways("
+                     "i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nPCSize, ( unsigned long ) nPCSize );
+            hb_llvmEmitFuncName( yyc, pFunc->szName );
+            fprintf( yyc, ", i32 0, i32 %lu))\n",
+                     ( unsigned long ) always_pos );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel,
+                                       seq_stack, seq_depth );
+            break;
+         }
+
+         case HB_P_ALWAYSBEGIN:
+         {
+            HB_ISIZ disp          = HB_PCODE_MKINT24( &pCode[ pos + 1 ] );
+            HB_SIZE always_end_pos = ( HB_SIZE )( ( HB_ISIZ ) pos + disp );
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_alwaysbegin("
+                     "i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nPCSize, ( unsigned long ) nPCSize );
+            hb_llvmEmitFuncName( yyc, pFunc->szName );
+            fprintf( yyc, ", i32 0, i32 %lu))\n"
+                          "  br label %%%s\n",
+                     ( unsigned long ) always_end_pos, szNextLabel );
+            break;
+         }
+
+         case HB_P_ALWAYSEND:
+         {
+            if( seq_depth > 0 )
+               seq_depth--;     /* pop the ALWAYS region BEFORE outer dispatch */
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_alwaysend()\n",
+                     ( unsigned long ) pos );
+            /* shim returns pending action (0/1/2/4); re-dispatch via outer region */
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel,
+                                       seq_stack, seq_depth );
+            break;
+         }
+
+         case HB_P_SEQBLOCK:
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_seqblock()\n",
+                     ( unsigned long ) pos );
+            hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel, seq_stack, seq_depth );
+            break;
 
          default:
             /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
@@ -1559,6 +1680,14 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_macrodo(i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_macrofunc(i32)\n" );
    fprintf( yyc, "declare i32 @hb_vmsh_macrosend(i32)\n" );
+   /* Group I: SEQUENCE shim declarations */
+   fprintf( yyc, "declare i32 @hb_vmsh_seqbegin(i8*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_seqend()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_seqrecover()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_seqalways(i8*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_alwaysbegin(i8*)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_alwaysend()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_seqblock()\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )

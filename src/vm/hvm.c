@@ -13701,9 +13701,16 @@ HB_EXPORT int hb_vmsh_seqend( void )
 HB_EXPORT int hb_vmsh_seqrecover( void )
 {
    HB_STACK_TLS_PRELOAD
+   PHB_ITEM pRecover = hb_stackItemFromTop( HB_RECOVER_STATE );
+   /* Store and clear the pending action request (mirrors what the interpreter
+    * does in its break-detection block at lines 3043-3044 of hvm.c before
+    * jumping to the recover pcode address). Without this, the action request
+    * would still be set when the recover body's shims check it. */
+   pRecover->item.asRecover.request = hb_stackGetActionRequest();
+   hb_stackSetActionRequest( 0 );
    /* Interpreter also restores its local bCanRecover from envelope.flags here;
     * the shim has no equivalent — compile-time region tracking is the substitute. */
-   hb_stackSetRecoverBase( hb_stackItemFromTop( HB_RECOVER_STATE )->item.asRecover.base );
+   hb_stackSetRecoverBase( pRecover->item.asRecover.base );
    hb_stackDec();           /* pop envelope; leave break-value as next stack top */
    return 0;
 }
