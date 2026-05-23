@@ -1,9 +1,14 @@
-// fallback.prg — exercises the interpreter fallback path.
-// Uses a static variable (HB_P_STATICNAME / HB_P_PUSHSTATIC / HB_P_POPSTATIC)
-// which are not yet straight-lined, so HB_FUN_MAIN must still route through
-// hb_vmExecute.
+//
+// Sentinel: this program MUST fall back to hb_vmExecute. Uses BEGIN SEQUENCE,
+// which emits HB_P_SEQBEGIN (113) and HB_P_SEQEND (114) — both HB_FALSE in
+// the straight-line decoder, forcing the whole function to the interpreter.
+// Distinct from statics.prg (which falls back via HB_P_SFRAME) so the two
+// sentinels exercise different unsupported paths.
+//
 function Main()
-   static nCount := 0
-   nCount := nCount + 1
-   ? nCount
+   local nResult := 0
+   begin sequence
+      nResult := 42
+   end sequence
+   ? nResult
    return nil
