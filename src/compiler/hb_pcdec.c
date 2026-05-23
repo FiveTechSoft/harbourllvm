@@ -80,6 +80,13 @@
  *
  * Group G additions (codeblocks):
  *   HB_P_PUSHBLOCK, HB_P_PUSHBLOCKSHORT, HB_P_PUSHBLOCKLARGE
+ *
+ * Group H additions (macros):
+ *   HB_P_MACROPOP, HB_P_MACROPOPALIASED, HB_P_MACROPUSH,
+ *   HB_P_MACROARRAYGEN, HB_P_MACROPUSHLIST, HB_P_MACROPUSHINDEX,
+ *   HB_P_MACROPUSHPARE, HB_P_MACROPUSHALIASED, HB_P_MACROSYMBOL,
+ *   HB_P_MACROTEXT, HB_P_MACROFUNC, HB_P_MACRODO, HB_P_MACROPUSHREF,
+ *   HB_P_MACROSEND
  */
 
 /* Compile-time size check — must have exactly HB_P_LAST_PCODE entries. */
@@ -125,16 +132,16 @@ const HB_PCINFO hb_pcInfo[] =
    /* 35 HB_P_LESS           */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 36 HB_P_LINE           */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 37 HB_P_LOCALNAME      */ { HB_PCK_UNKNOWN,  0,  HB_FALSE }, /* null-terminated string at pCode+3 */
-   /* 38 HB_P_MACROPOP       */ { HB_PCK_FIXED,    2,  HB_FALSE },
-   /* 39 HB_P_MACROPOPALIASED*/ { HB_PCK_FIXED,    2,  HB_FALSE },
-   /* 40 HB_P_MACROPUSH      */ { HB_PCK_FIXED,    2,  HB_FALSE },
-   /* 41 HB_P_MACROARRAYGEN  */ { HB_PCK_FIXED,    3,  HB_FALSE },
-   /* 42 HB_P_MACROPUSHLIST  */ { HB_PCK_FIXED,    2,  HB_FALSE },
-   /* 43 HB_P_MACROPUSHINDEX */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 44 HB_P_MACROPUSHPARE  */ { HB_PCK_FIXED,    2,  HB_FALSE },
-   /* 45 HB_P_MACROPUSHALIASED*/{HB_PCK_FIXED,     2,  HB_FALSE },
-   /* 46 HB_P_MACROSYMBOL    */ { HB_PCK_FIXED,    1,  HB_FALSE },
-   /* 47 HB_P_MACROTEXT      */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 38 HB_P_MACROPOP       */ { HB_PCK_FIXED,    2,  HB_TRUE  },
+   /* 39 HB_P_MACROPOPALIASED*/ { HB_PCK_FIXED,    2,  HB_TRUE  },
+   /* 40 HB_P_MACROPUSH      */ { HB_PCK_FIXED,    2,  HB_TRUE  },
+   /* 41 HB_P_MACROARRAYGEN  */ { HB_PCK_FIXED,    3,  HB_TRUE  },
+   /* 42 HB_P_MACROPUSHLIST  */ { HB_PCK_FIXED,    2,  HB_TRUE  },
+   /* 43 HB_P_MACROPUSHINDEX */ { HB_PCK_FIXED,    1,  HB_TRUE  },
+   /* 44 HB_P_MACROPUSHPARE  */ { HB_PCK_FIXED,    2,  HB_TRUE  },
+   /* 45 HB_P_MACROPUSHALIASED*/{HB_PCK_FIXED,     2,  HB_TRUE  },
+   /* 46 HB_P_MACROSYMBOL    */ { HB_PCK_FIXED,    1,  HB_TRUE  },
+   /* 47 HB_P_MACROTEXT      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 48 HB_P_MESSAGE        */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 49 HB_P_MINUS          */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 50 HB_P_MODULUS        */ { HB_PCK_FIXED,    1,  HB_TRUE  },
@@ -210,11 +217,11 @@ const HB_PCINFO hb_pcInfo[] =
    /* 120 HB_P_TRUE          */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 121 HB_P_ZERO          */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 122 HB_P_ONE           */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 123 HB_P_MACROFUNC     */ { HB_PCK_FIXED,    3,  HB_FALSE },
-   /* 124 HB_P_MACRODO       */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 123 HB_P_MACROFUNC     */ { HB_PCK_FIXED,    3,  HB_TRUE  },
+   /* 124 HB_P_MACRODO       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 125 HB_P_MPUSHSTR      */ { HB_PCK_STR2,     0,  HB_FALSE }, /* 2-byte length prefix, macro-compiled string */
    /* 126 HB_P_LOCALNEARADDINT*/{HB_PCK_FIXED,     4,  HB_TRUE  },
-   /* 127 HB_P_MACROPUSHREF  */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 127 HB_P_MACROPUSHREF  */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 128 HB_P_PUSHLONGLONG  */ { HB_PCK_FIXED,    9,  HB_TRUE  },
    /* 129 HB_P_ENUMSTART     */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 130 HB_P_ENUMNEXT      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
@@ -233,7 +240,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 143 HB_P_WITHOBJECTSTART*/{HB_PCK_FIXED,     1,  HB_TRUE  },
    /* 144 HB_P_WITHOBJECTMESSAGE*/{HB_PCK_FIXED,   3,  HB_TRUE  },
    /* 145 HB_P_WITHOBJECTEND */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 146 HB_P_MACROSEND     */ { HB_PCK_FIXED,    3,  HB_FALSE },
+   /* 146 HB_P_MACROSEND     */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 147 HB_P_PUSHOVARREF   */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 148 HB_P_ARRAYPUSHREF  */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 149 HB_P_VFRAME        */ { HB_PCK_FIXED,    3,  HB_FALSE },

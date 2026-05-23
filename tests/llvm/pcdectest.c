@@ -15,6 +15,7 @@
  *   pcdec: jump analysis correct
  *   pcdec: HB_P_SWITCH length correct
  *   pcdec: HB_P_PUSHBLOCK* supported
+ *   pcdec: 14 macro opcodes supported, MPUSH* family still unsupported
  */
 
 #include "hb_pcdec.h"
@@ -96,6 +97,31 @@ int main( void )
       assert( hb_pcInfo[ HB_P_PUSHBLOCKSHORT ].fSupported );
       assert( hb_pcInfo[ HB_P_PUSHBLOCKLARGE ].fSupported );
       printf( "pcdec: HB_P_PUSHBLOCK* supported\n" );
+   }
+
+   {
+      /* Group H: the 14 compiler-emitted macro opcodes are now in the
+       * straight-line subset. MPUSHBLOCK / MPUSHSTR family stays HB_FALSE. */
+      assert( hb_pcInfo[ HB_P_MACROPOP         ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROPOPALIASED  ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROPUSH        ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROARRAYGEN    ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROPUSHLIST    ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROPUSHINDEX   ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROPUSHPARE    ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROPUSHALIASED ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROSYMBOL      ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROTEXT        ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROFUNC        ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACRODO          ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROPUSHREF     ].fSupported );
+      assert( hb_pcInfo[ HB_P_MACROSEND        ].fSupported );
+      /* MPUSH* family must stay unsupported. */
+      assert( ! hb_pcInfo[ HB_P_MPUSHBLOCK      ].fSupported );
+      assert( ! hb_pcInfo[ HB_P_MPUSHSTR        ].fSupported );
+      assert( ! hb_pcInfo[ HB_P_MPUSHBLOCKLARGE ].fSupported );
+      assert( ! hb_pcInfo[ HB_P_MPUSHSTRLARGE   ].fSupported );
+      printf( "pcdec: 14 macro opcodes supported, MPUSH* family still unsupported\n" );
    }
 
    return 0;
