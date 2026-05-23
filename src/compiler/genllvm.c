@@ -777,15 +777,6 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
 
 #undef HB_EMIT_NOARG_SHIM
 
-#define HB_EMIT_INT1_SHIM( nm, val ) \
-            fprintf( yyc, \
-                     "  %%r%lu = call i32 @hb_vmsh_" nm "(i32 %u)\n" \
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n" \
-                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n", \
-                     ( unsigned long ) pos, ( unsigned ) ( val ), \
-                     ( unsigned long ) pos, ( unsigned long ) pos, \
-                     ( unsigned long ) pos, szNextLabel )
-
          /* Group A: 2 ref-push opcodes (2-byte index operand) */
          case HB_P_PUSHLOCALREF:
          {
@@ -1361,6 +1352,15 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      ( unsigned long ) pos,
                      iSymCount, iSymCount, szNextLabel );
             break;
+
+#define HB_EMIT_INT1_SHIM( nm, val ) \
+            fprintf( yyc, \
+                     "  %%r%lu = call i32 @hb_vmsh_" nm "(i32 %u)\n" \
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n" \
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n", \
+                     ( unsigned long ) pos, ( unsigned ) ( val ), \
+                     ( unsigned long ) pos, ( unsigned long ) pos, \
+                     ( unsigned long ) pos, szNextLabel )
 
          /* Group H: macros — 1-byte flag operand */
          case HB_P_MACROPOP:
