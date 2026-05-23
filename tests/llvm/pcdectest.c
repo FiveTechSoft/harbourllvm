@@ -134,6 +134,9 @@ int main( void )
       assert( hb_pcInfo[ HB_P_ALWAYSBEGIN ].fSupported );
       assert( hb_pcInfo[ HB_P_ALWAYSEND   ].fSupported );
       assert( hb_pcInfo[ HB_P_SEQBLOCK    ].fSupported );
+      /* Fence: adjacent opcodes intentionally NOT in the straight-line subset. */
+      assert( ! hb_pcInfo[ HB_P_SFRAME        ].fSupported );   /* 116 */
+      assert( ! hb_pcInfo[ HB_P_THREADSTATICS ].fSupported );   /* 179 */
       printf( "pcdec: 7 SEQUENCE opcodes supported\n" );
    }
 
