@@ -36,6 +36,7 @@ straight to a native binary and links against the precompiled Harbour runtime
 | D — OOP messages | Straight-line IR for method calls (`oObj:method()`), `Self`, object-variable references, `WITH OBJECT` blocks. | **done** |
 | E — FOR EACH | Straight-line IR for `FOR EACH ... NEXT` loops (and `DESCEND`) over arrays, hashes, strings. | **done** |
 | F — SWITCH | Straight-line IR for `SWITCH` statements — a real LLVM `switch` over the matched case index. | **done** |
+| G — codeblocks | Straight-line IR for codeblock-literal construction (`{\|args\| ...}`); block bodies still run through `hb_vmExecute` on `Eval()` — identical to the C backend. | **done** |
 
 Plan 2 (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API to
 turn its IR into a native object file and embeds the LLD linker (via a small
@@ -50,12 +51,13 @@ comparisons, logical ops, jumps, function calls, return), `harbour -GL` now
 emits **straight-line native code** — one LLVM basic block per pcode opcode,
 each calling an exported `hb_vmsh_*` op shim — instead of handing the pcode
 array to the `hb_vmExecute` bytecode interpreter. Functions using opcodes
-outside the subset (codeblocks, RDD ops, OOP messages, …) fall back,
-whole-function, to the interpreter, so every program stays correct. This
+outside the subset (macros, `BEGIN SEQUENCE`, static-variable frames, …)
+fall back, whole-function, to the interpreter, so every program stays
+correct. This
 removes the dispatch overhead; type specialization (the larger speedup) is
 possible future work.
 
-Opcode groups A–F extend the straight-line subset: group A covers FOR loops
+Opcode groups A–G extend the straight-line subset: group A covers FOR loops
 (`FOR..NEXT`, `FOR..STEP`) and the compound-assignment / increment-decrement
 operators; group B covers array and hash literals, element access and
 assignment, and array creation; group C covers database-field access, memory
@@ -63,8 +65,10 @@ variables, undeclared variables, aliased access, and workarea selection; group
 D covers OOP message sends (`oObj:method()`), `Self`, object-variable
 references, and `WITH OBJECT` blocks; group E covers `FOR EACH` loops over
 arrays, hashes and strings; group F covers `SWITCH` statements, lowered to a
-native LLVM `switch` instruction. Further opcode groups (codeblocks, macros,
-SEQUENCE) are planned, each as its own spec.
+native LLVM `switch` instruction; group G covers codeblock-literal
+construction (`{|args| ...}`) — the block value is built straight-line via a
+shim, the body keeps running through `hb_vmExecute` on `Eval()`. Further
+opcode groups (macros, SEQUENCE) are planned, each as its own spec.
 
 The full design and step-by-step plans live in
 [`docs/superpowers/`](docs/superpowers/).
