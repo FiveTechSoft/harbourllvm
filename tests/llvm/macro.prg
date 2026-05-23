@@ -17,6 +17,12 @@
 // declared private (or memvar, for the aliased case).
 //
 function Main()
+   local   cN := "nMain"
+   private nMain := "ready"
+   // direct macro op in Main so run.sh's HB_FUN_MAIN hard-fail check
+   // catches a regression in any group-H shim — without this, Main()
+   // contains no macros and the gate is vacuous.
+   ? &cN
    ReadVar()
    WriteVar()
    CallFunc()
