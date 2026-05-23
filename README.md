@@ -37,6 +37,7 @@ straight to a native binary and links against the precompiled Harbour runtime
 | E — FOR EACH | Straight-line IR for `FOR EACH ... NEXT` loops (and `DESCEND`) over arrays, hashes, strings. | **done** |
 | F — SWITCH | Straight-line IR for `SWITCH` statements — a real LLVM `switch` over the matched case index. | **done** |
 | G — codeblocks | Straight-line IR for codeblock-literal construction (`{\|args\| ...}`); block bodies still run through `hb_vmExecute` on `Eval()` — identical to the C backend. | **done** |
+| H — macros | Straight-line IR for the 14 compiler-emitted macro opcodes (`&var`, `&("expr")`, `text…endtext`, `@&var`, aliased `M->&fld`); same `hb_macro*`/`hb_vmMacro*` helpers as the interpreter. | **done** |
 
 Plan 2 (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API to
 turn its IR into a native object file and embeds the LLD linker (via a small
@@ -57,7 +58,7 @@ correct. This
 removes the dispatch overhead; type specialization (the larger speedup) is
 possible future work.
 
-Opcode groups A–G extend the straight-line subset: group A covers FOR loops
+Opcode groups A–H extend the straight-line subset: group A covers FOR loops
 (`FOR..NEXT`, `FOR..STEP`) and the compound-assignment / increment-decrement
 operators; group B covers array and hash literals, element access and
 assignment, and array creation; group C covers database-field access, memory
@@ -67,8 +68,11 @@ references, and `WITH OBJECT` blocks; group E covers `FOR EACH` loops over
 arrays, hashes and strings; group F covers `SWITCH` statements, lowered to a
 native LLVM `switch` instruction; group G covers codeblock-literal
 construction (`{|args| ...}`) — the block value is built straight-line via a
-shim, the body keeps running through `hb_vmExecute` on `Eval()`. Further
-opcode groups (macros, SEQUENCE) are planned, each as its own spec.
+shim, the body keeps running through `hb_vmExecute` on `Eval()`; group H
+covers the 14 compiler-emitted macro opcodes (`&var`, `&("expr")`,
+`text…endtext`, `@&var`, aliased `M->&fld`), delegating to the same
+`hb_macro*`/`hb_vmMacro*` helpers used by the interpreter. Further opcode
+groups (SEQUENCE) are planned, each as its own spec.
 
 The full design and step-by-step plans live in
 [`docs/superpowers/`](docs/superpowers/).
