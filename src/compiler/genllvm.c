@@ -769,7 +769,22 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          case HB_P_ENUMPREV:        HB_EMIT_NOARG_SHIM( "enumprev" );        break;
          case HB_P_ENUMEND:         HB_EMIT_NOARG_SHIM( "enumend" );         break;
 
+         /* Group H: macros — no-operand */
+         case HB_P_MACROPUSHINDEX: HB_EMIT_NOARG_SHIM( "macropushindex" ); break;
+         case HB_P_MACROPUSHREF:   HB_EMIT_NOARG_SHIM( "macropushref"   ); break;
+         case HB_P_MACROSYMBOL:    HB_EMIT_NOARG_SHIM( "macrosymbol"    ); break;
+         case HB_P_MACROTEXT:      HB_EMIT_NOARG_SHIM( "macrotext"      ); break;
+
 #undef HB_EMIT_NOARG_SHIM
+
+#define HB_EMIT_INT1_SHIM( nm, val ) \
+            fprintf( yyc, \
+                     "  %%r%lu = call i32 @hb_vmsh_" nm "(i32 %u)\n" \
+                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n" \
+                     "  br i1 %%c%lu, label %%epilogue, label %%%s\n", \
+                     ( unsigned long ) pos, ( unsigned ) ( val ), \
+                     ( unsigned long ) pos, ( unsigned long ) pos, \
+                     ( unsigned long ) pos, szNextLabel )
 
          /* Group A: 2 ref-push opcodes (2-byte index operand) */
          case HB_P_PUSHLOCALREF:
@@ -1347,6 +1362,32 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      iSymCount, iSymCount, szNextLabel );
             break;
 
+         /* Group H: macros — 1-byte flag operand */
+         case HB_P_MACROPOP:
+            HB_EMIT_INT1_SHIM( "macropop",         pCode[ pos + 1 ] ); break;
+         case HB_P_MACROPOPALIASED:
+            HB_EMIT_INT1_SHIM( "macropopaliased",  pCode[ pos + 1 ] ); break;
+         case HB_P_MACROPUSH:
+            HB_EMIT_INT1_SHIM( "macropush",        pCode[ pos + 1 ] ); break;
+         case HB_P_MACROPUSHLIST:
+            HB_EMIT_INT1_SHIM( "macropushlist",    pCode[ pos + 1 ] ); break;
+         case HB_P_MACROPUSHPARE:
+            HB_EMIT_INT1_SHIM( "macropushpare",    pCode[ pos + 1 ] ); break;
+         case HB_P_MACROPUSHALIASED:
+            HB_EMIT_INT1_SHIM( "macropushaliased", pCode[ pos + 1 ] ); break;
+
+         /* Group H: macros — 2-byte MKUSHORT operand */
+         case HB_P_MACROARRAYGEN:
+            HB_EMIT_INT1_SHIM( "macroarraygen", HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] ) ); break;
+         case HB_P_MACROFUNC:
+            HB_EMIT_INT1_SHIM( "macrofunc",     HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] ) ); break;
+         case HB_P_MACRODO:
+            HB_EMIT_INT1_SHIM( "macrodo",       HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] ) ); break;
+         case HB_P_MACROSEND:
+            HB_EMIT_INT1_SHIM( "macrosend",     HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] ) ); break;
+
+#undef HB_EMIT_INT1_SHIM
+
          default:
             /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
             break;
@@ -1503,6 +1544,21 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_switchidx(i8*, i32)\n" );
    /* Group G: codeblock shim declaration */
    fprintf( yyc, "declare i32 @hb_vmsh_pushblock(i8*, %%HB_SYMB*)\n" );
+   /* Group H: macro shim declarations */
+   fprintf( yyc, "declare i32 @hb_vmsh_macropushindex()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macropushref()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macrosymbol()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macrotext()\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macropop(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macropopaliased(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macropush(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macropushlist(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macropushpare(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macropushaliased(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macroarraygen(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macrodo(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macrofunc(i32)\n" );
+   fprintf( yyc, "declare i32 @hb_vmsh_macrosend(i32)\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
