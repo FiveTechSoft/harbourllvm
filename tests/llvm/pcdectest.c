@@ -16,6 +16,7 @@
  *   pcdec: HB_P_SWITCH length correct
  *   pcdec: HB_P_PUSHBLOCK* supported
  *   pcdec: 14 macro opcodes supported, MPUSH* family still unsupported
+ *   pcdec: 7 SEQUENCE opcodes supported
  */
 
 #include "hb_pcdec.h"
@@ -122,6 +123,18 @@ int main( void )
       assert( ! hb_pcInfo[ HB_P_MPUSHBLOCKLARGE ].fSupported );
       assert( ! hb_pcInfo[ HB_P_MPUSHSTRLARGE   ].fSupported );
       printf( "pcdec: 14 macro opcodes supported, MPUSH* family still unsupported\n" );
+   }
+
+   {
+      /* Group I: the 7 SEQUENCE opcodes are now in the straight-line subset. */
+      assert( hb_pcInfo[ HB_P_SEQBEGIN    ].fSupported );
+      assert( hb_pcInfo[ HB_P_SEQEND      ].fSupported );
+      assert( hb_pcInfo[ HB_P_SEQRECOVER  ].fSupported );
+      assert( hb_pcInfo[ HB_P_SEQALWAYS   ].fSupported );
+      assert( hb_pcInfo[ HB_P_ALWAYSBEGIN ].fSupported );
+      assert( hb_pcInfo[ HB_P_ALWAYSEND   ].fSupported );
+      assert( hb_pcInfo[ HB_P_SEQBLOCK    ].fSupported );
+      printf( "pcdec: 7 SEQUENCE opcodes supported\n" );
    }
 
    return 0;

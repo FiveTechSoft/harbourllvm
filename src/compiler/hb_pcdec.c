@@ -87,6 +87,11 @@
  *   HB_P_MACROPUSHPARE, HB_P_MACROPUSHALIASED, HB_P_MACROSYMBOL,
  *   HB_P_MACROTEXT, HB_P_MACROFUNC, HB_P_MACRODO, HB_P_MACROPUSHREF,
  *   HB_P_MACROSEND
+ *
+ * Group I additions (SEQUENCE):
+ *   HB_P_SEQBEGIN, HB_P_SEQEND, HB_P_SEQRECOVER,
+ *   HB_P_SEQALWAYS, HB_P_ALWAYSBEGIN, HB_P_ALWAYSEND,
+ *   HB_P_SEQBLOCK
  */
 
 /* Compile-time size check — must have exactly HB_P_LAST_PCODE entries. */
@@ -207,9 +212,9 @@ const HB_PCINFO hb_pcInfo[] =
    /* 110 HB_P_RETVALUE      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 111 HB_P_SEND          */ { HB_PCK_FIXED,    3,  HB_TRUE  }, /* instr is 3 bytes; interpreter may eat following POP */
    /* 112 HB_P_SENDSHORT     */ { HB_PCK_FIXED,    2,  HB_TRUE  },
-   /* 113 HB_P_SEQBEGIN      */ { HB_PCK_FIXED,    4,  HB_FALSE },
-   /* 114 HB_P_SEQEND        */ { HB_PCK_FIXED,    4,  HB_FALSE }, /* 4-byte instr; interp uses operand as jump offset */
-   /* 115 HB_P_SEQRECOVER    */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 113 HB_P_SEQBEGIN      */ { HB_PCK_FIXED,    4,  HB_TRUE  },
+   /* 114 HB_P_SEQEND        */ { HB_PCK_FIXED,    4,  HB_TRUE  }, /* 4-byte instr; interp uses operand as jump offset */
+   /* 115 HB_P_SEQRECOVER    */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 116 HB_P_SFRAME        */ { HB_PCK_FIXED,    3,  HB_FALSE },
    /* 117 HB_P_STATICS       */ { HB_PCK_FIXED,    5,  HB_FALSE },
    /* 118 HB_P_STATICNAME    */ { HB_PCK_UNKNOWN,  0,  HB_FALSE }, /* null-terminated string at pCode+4 */
@@ -260,9 +265,9 @@ const HB_PCINFO hb_pcInfo[] =
    /* 163 HB_P_SWAP          */ { HB_PCK_FIXED,    2,  HB_FALSE },
    /* 164 HB_P_PUSHVPARAMS   */ { HB_PCK_FIXED,    1,  HB_FALSE },
    /* 165 HB_P_PUSHUNREF     */ { HB_PCK_FIXED,    1,  HB_TRUE  },
-   /* 166 HB_P_SEQALWAYS     */ { HB_PCK_FIXED,    4,  HB_FALSE },
-   /* 167 HB_P_ALWAYSBEGIN   */ { HB_PCK_FIXED,    4,  HB_FALSE },
-   /* 168 HB_P_ALWAYSEND     */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 166 HB_P_SEQALWAYS     */ { HB_PCK_FIXED,    4,  HB_TRUE  },
+   /* 167 HB_P_ALWAYSBEGIN   */ { HB_PCK_FIXED,    4,  HB_TRUE  },
+   /* 168 HB_P_ALWAYSEND     */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 169 HB_P_DECEQPOP      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 170 HB_P_INCEQPOP      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 171 HB_P_DECEQ         */ { HB_PCK_FIXED,    1,  HB_TRUE  },
@@ -272,7 +277,7 @@ const HB_PCINFO hb_pcInfo[] =
    /* 175 HB_P_LOCALINCPUSH  */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 176 HB_P_PUSHFUNCSYM   */ { HB_PCK_FIXED,    3,  HB_TRUE  },
    /* 177 HB_P_HASHGEN       */ { HB_PCK_FIXED,    3,  HB_TRUE  },
-   /* 178 HB_P_SEQBLOCK      */ { HB_PCK_FIXED,    1,  HB_FALSE },
+   /* 178 HB_P_SEQBLOCK      */ { HB_PCK_FIXED,    1,  HB_TRUE  },
    /* 179 HB_P_THREADSTATICS */ { HB_PCK_UNKNOWN,  0,  HB_FALSE }, /* 3 + 2*count; count from 2-byte operand */
    /* 180 HB_P_PUSHAPARAMS   */ { HB_PCK_FIXED,    1,  HB_TRUE  },
 };
