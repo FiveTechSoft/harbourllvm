@@ -1,14 +1,19 @@
 //
 // Group H corpus — macro opcodes straight-lined by the LLVM backend.
 //
-// Exercises the major macro forms: &var read (MACROPUSH), &var := x write
-// (MACROPOP), &("expr()") call (MACROFUNC), &("expr") DO (MACRODO),
-// text...endtext substitution (MACROTEXT), @&var reference (MACROPUSHREF),
-// and aliased &fld (MACROPUSHALIASED).
+// One function per pcode opcode the Harbour compiler emits for macros. Each
+// function uses the precise xBase form that triggers its target opcode:
 //
-// Note: Harbour macros do NOT resolve LOCAL variables — they require
-// private/public/static. The variables targeted by &var are declared
-// `private` so the macro can find them.
+//   MACROPUSH        x := &cName            (macro read into local)
+//   MACROPOP         &cName := 99           (macro write)
+//   MACROFUNC        Upper( &cArg )         (named call, macro in arglist)
+//   MACRODO          Show( &cArg )          (statement-position named call w/ macro arg)
+//   MACROTEXT        "hello, &cWhat"        (string literal w/ macro substitution)
+//   MACROPUSHREF     TakeRef( @&cName )     (pass-by-reference macro)
+//   MACROPUSHALIASED ? M->&cFld             (aliased memvar w/ macro field name)
+//
+// Note: Harbour macros do NOT resolve LOCAL variables — every &-target is
+// declared private (or memvar, for the aliased case).
 //
 function Main()
    ReadVar()
@@ -21,9 +26,11 @@ function Main()
    return nil
 
 function ReadVar()
+   local   x
    local   cName := "n"
    private n     := 7
-   ? &cName
+   x := &cName
+   ? x
    return nil
 
 function WriteVar()
@@ -34,35 +41,39 @@ function WriteVar()
    return nil
 
 function CallFunc()
-   local cExpr := "Upper( 'hello' )"
-   ? &( cExpr )
+   local cArg := "hello"
+   ? Upper( &cArg )
    return nil
 
 function DoFunc()
-   local cName := "Greet"
-   &cName.()
+   local cArg := "called"
+   Show( &cArg )
    return nil
 
-function Greet()
-   ? "greet called"
+function Show( cText )
+   ? cText
    return nil
 
 function TextSub()
-   local   cExpr := "cWhat"
+   local   cStr
    private cWhat := "world"
-   ? &cExpr
+   cStr := "hello, &cWhat"
+   ? cStr
    return nil
 
 function RefMacro()
-   local   cName   := "n"
-   local   bSetter
-   private n       := 0
-   bSetter := {| x | n := x }
-   Eval( bSetter, 11 )
+   local   cName := "n"
+   private n     := 0
+   TakeRef( @&cName )
    ? n
    return nil
 
+function TakeRef( xRef )
+   xRef := 33
+   return nil
+
 function AliasMacro()
-   local cFld := "FOO"
-   ? Type( "M->" + cFld )
+   local   cFld := "FOO"
+   private FOO  := 99
+   ? M->&cFld
    return nil
