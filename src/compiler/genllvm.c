@@ -1324,6 +1324,28 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
          }
 
+         /* Group G: codeblock literal — construct the block value via the
+          * shim. The block body pcode stays inline in @.pcode.<func>; the
+          * shim hands hb_vmPushBlock a pointer into it. No action-request
+          * check (constructing a block runs no user code). */
+         case HB_P_PUSHBLOCK:
+         case HB_P_PUSHBLOCKSHORT:
+         case HB_P_PUSHBLOCKLARGE:
+            fprintf( yyc,
+                     "  %%r%lu = call i32 @hb_vmsh_pushblock("
+                     "i8* getelementptr([%lu x i8], [%lu x i8]* @.pcode.",
+                     ( unsigned long ) pos,
+                     ( unsigned long ) nPCSize, ( unsigned long ) nPCSize );
+            hb_llvmEmitFuncName( yyc, pFunc->szName );
+            fprintf( yyc,
+                     ", i32 0, i32 %lu), "
+                     "%%HB_SYMB* getelementptr([%d x %%HB_SYMB], "
+                     "[%d x %%HB_SYMB]* @symbols_table, i32 0, i32 0))\n"
+                     "  br label %%%s\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, szNextLabel );
+            break;
+
          default:
             /* Should never reach here — hb_llvmSLPrecheck ensured fAllSupported. */
             break;
@@ -1478,6 +1500,8 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    fprintf( yyc, "declare i32 @hb_vmsh_enumend()\n" );
    /* Group F: SWITCH shim declaration */
    fprintf( yyc, "declare i32 @hb_vmsh_switchidx(i8*, i32)\n" );
+   /* Group G: codeblock shim declaration */
+   fprintf( yyc, "declare i32 @hb_vmsh_pushblock(i8*, %%HB_SYMB*)\n" );
    if( HB_COMP_PARAM->pInitFunc == NULL )
       fprintf( yyc, "declare void @hb_INITSTATICS()\n" );
    if( HB_COMP_PARAM->pLineFunc == NULL )
