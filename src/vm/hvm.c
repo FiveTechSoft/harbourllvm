@@ -13662,3 +13662,117 @@ HB_EXPORT int hb_vmsh_macrosend( int usParams )
    return ( int ) hb_stackGetActionRequest();
 }
 
+/* --- group I: SEQUENCE --- */
+
+HB_EXPORT int hb_vmsh_seqbegin( const unsigned char * pRecoverAddr )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pItem;
+
+   /* 1) clear the storage for value returned by BREAK statement */
+   hb_stackAllocItem()->type = HB_IT_NIL;
+
+   /* 2) recover envelope */
+   pItem = hb_stackAllocItem();
+   pItem->type = HB_IT_RECOVER;
+   pItem->item.asRecover.recover = pRecoverAddr;
+   pItem->item.asRecover.base    = hb_stackGetRecoverBase();
+   /* Straight-line code does not use bCanRecover (compile-time tracking
+    * does); set CANRECOVER unconditionally so a nested interpreter-run
+    * SEQUENCE that walks the stack sees this as a valid recover frame. */
+   pItem->item.asRecover.flags   = HB_SEQ_CANRECOVER;
+   pItem->item.asRecover.request = 0;
+
+   hb_stackSetRecoverBase( hb_stackTopOffset() );
+   return 0;
+}
+
+HB_EXPORT int hb_vmsh_seqend( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_stackSetRecoverBase( hb_stackItemFromTop( HB_RECOVER_STATE )->item.asRecover.base );
+   hb_stackDec();           /* pop the envelope */
+   hb_stackPop();           /* pop the break-value slot */
+   return 0;
+}
+
+HB_EXPORT int hb_vmsh_seqrecover( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_stackSetRecoverBase( hb_stackItemFromTop( HB_RECOVER_STATE )->item.asRecover.base );
+   hb_stackDec();           /* pop envelope; leave break-value as next stack top */
+   return 0;
+}
+
+HB_EXPORT int hb_vmsh_seqalways( const unsigned char * pAlwaysAddr )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pItem;
+
+   hb_stackAllocItem()->type = HB_IT_NIL;
+
+   pItem = hb_stackAllocItem();
+   pItem->type = HB_IT_RECOVER;
+   pItem->item.asRecover.recover = pAlwaysAddr;
+   pItem->item.asRecover.base    = hb_stackGetRecoverBase();
+   pItem->item.asRecover.flags   = HB_SEQ_DOALWAYS | HB_SEQ_CANRECOVER;
+   pItem->item.asRecover.request = 0;
+
+   hb_stackSetRecoverBase( hb_stackTopOffset() );
+   return 0;
+}
+
+HB_EXPORT int hb_vmsh_alwaysbegin( const unsigned char * pAlwaysEndAddr )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM pRecover = hb_stackItemFromTop( HB_RECOVER_STATE );
+
+   pRecover->item.asRecover.recover = pAlwaysEndAddr;
+   /* fold pending request into flags, clear request */
+   pRecover->item.asRecover.flags  |= pRecover->item.asRecover.request;
+   pRecover->item.asRecover.request = 0;
+   /* preserve RETURN value if ENDPROC was requested */
+   if( pRecover->item.asRecover.flags & HB_ENDPROC_REQUESTED )
+      hb_itemMove( hb_stackItemFromTop( HB_RECOVER_VALUE ), hb_stackReturnItem() );
+   return 0;
+}
+
+HB_EXPORT int hb_vmsh_alwaysend( void )
+{
+   HB_STACK_TLS_PRELOAD
+   PHB_ITEM   pRecover     = hb_stackItemFromTop( HB_RECOVER_STATE );
+   HB_USHORT  uiPrevAction = pRecover->item.asRecover.flags;
+   HB_USHORT  uiCurrAction = pRecover->item.asRecover.request;
+   int        iAction;
+
+   hb_stackSetRecoverBase( pRecover->item.asRecover.base );
+
+   if( ( uiCurrAction | uiPrevAction ) & HB_QUIT_REQUESTED )
+      iAction = HB_QUIT_REQUESTED;
+   else if( ( uiCurrAction | uiPrevAction ) & HB_BREAK_REQUESTED )
+      iAction = HB_BREAK_REQUESTED;
+   else if( ( uiCurrAction | uiPrevAction ) & HB_ENDPROC_REQUESTED )
+      iAction = HB_ENDPROC_REQUESTED;
+   else
+      iAction = 0;
+
+   hb_stackSetActionRequest( ( HB_USHORT ) iAction );
+   hb_stackDec();           /* remove the ALWAYS envelope */
+
+   /* restore RETURN value if not overloaded inside ALWAYS code */
+   if( ! ( uiCurrAction & HB_ENDPROC_REQUESTED ) &&
+         (   uiPrevAction & HB_ENDPROC_REQUESTED ) )
+      hb_stackPopReturn();
+   else
+      hb_stackPop();
+
+   return iAction;
+}
+
+HB_EXPORT int hb_vmsh_seqblock( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmSeqBlock();
+   return ( int ) hb_stackGetActionRequest();
+}
+

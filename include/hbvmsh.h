@@ -187,6 +187,22 @@ extern HB_EXPORT int hb_vmsh_macrodo       ( int usParams );
 extern HB_EXPORT int hb_vmsh_macrofunc     ( int usParams );
 extern HB_EXPORT int hb_vmsh_macrosend     ( int usParams );
 
+/* --- group I: SEQUENCE --- */
+/* Each shim mirrors its interpreter case body byte-for-byte; the envelope
+ * pushed on the stack is the same HB_IT_RECOVER item the interpreter pushes,
+ * so hb_vmRequestBreak() and the error subsystem (which walk the sequence
+ * stack) see identical layout. Group I uses compile-time region tracking in
+ * the emitter for the actual control transfer — the runtime envelope is for
+ * cross-language compatibility, not control flow. */
+
+extern HB_EXPORT int hb_vmsh_seqbegin     ( const unsigned char * pRecoverAddr );
+extern HB_EXPORT int hb_vmsh_seqend       ( void );
+extern HB_EXPORT int hb_vmsh_seqrecover   ( void );
+extern HB_EXPORT int hb_vmsh_seqalways    ( const unsigned char * pAlwaysAddr );
+extern HB_EXPORT int hb_vmsh_alwaysbegin  ( const unsigned char * pAlwaysEndAddr );
+extern HB_EXPORT int hb_vmsh_alwaysend    ( void );
+extern HB_EXPORT int hb_vmsh_seqblock     ( void );
+
 HB_EXTERN_END
 
 #endif
