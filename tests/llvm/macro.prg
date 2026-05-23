@@ -41,12 +41,12 @@ function WriteVar()
    return nil
 
 function CallFunc()
-   local cArg := "hello"
+   local cArg := "'hello'"
    ? Upper( &cArg )
    return nil
 
 function DoFunc()
-   local cArg := "called"
+   local cArg := "'called'"
    Show( &cArg )
    return nil
 
