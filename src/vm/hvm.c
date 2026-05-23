@@ -13554,3 +13554,111 @@ HB_EXPORT int hb_vmsh_pushblock( const unsigned char * pCode,
    return 0;
 }
 
+/* --- group H: macros --- */
+
+/* no-operand shims */
+
+HB_EXPORT int hb_vmsh_macropushindex( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmMacroPushIndex();
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macropushref( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroPushReference( hb_stackItemFromTop( -1 ) );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macrosymbol( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroPushSymbol( hb_stackItemFromTop( -1 ) );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macrotext( void )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroTextValue( hb_stackItemFromTop( -1 ) );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* 1-byte flag shims */
+
+HB_EXPORT int hb_vmsh_macropop( int flag )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroSetValue( hb_stackItemFromTop( -1 ), flag );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macropopaliased( int flag )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroPopAliasedValue( hb_stackItemFromTop( -2 ),
+                            hb_stackItemFromTop( -1 ), flag );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macropush( int flag )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroGetValue( hb_stackItemFromTop( -1 ), 0, flag );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macropushlist( int flag )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroGetValue( hb_stackItemFromTop( -1 ), HB_P_MACROPUSHLIST, flag );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macropushpare( int flag )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroGetValue( hb_stackItemFromTop( -1 ), HB_P_MACROPUSHPARE, flag );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macropushaliased( int flag )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_macroPushAliasedValue( hb_stackItemFromTop( -2 ),
+                             hb_stackItemFromTop( -1 ), flag );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+/* 2-byte MKUSHORT shims */
+
+HB_EXPORT int hb_vmsh_macroarraygen( int usFlags )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmMacroArrayGen( ( HB_USHORT ) usFlags );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macrodo( int usParams )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmMacroDo( ( HB_USHORT ) usParams );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macrofunc( int usParams )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmMacroFunc( ( HB_USHORT ) usParams );
+   return ( int ) hb_stackGetActionRequest();
+}
+
+HB_EXPORT int hb_vmsh_macrosend( int usParams )
+{
+   HB_STACK_TLS_PRELOAD
+   hb_vmMacroSend( ( HB_USHORT ) usParams );
+   return ( int ) hb_stackGetActionRequest();
+}
+

@@ -162,6 +162,31 @@ extern HB_EXPORT int hb_vmsh_switchidx( const unsigned char * pTable,
 extern HB_EXPORT int hb_vmsh_pushblock( const unsigned char * pCode,
                                         PHB_SYMB pSymbols );
 
+/* --- group H: macros --- */
+/* Each macro shim calls the same hb_macro* / hb_vmMacro* helper the
+ * interpreter calls, returning the current action request — macro code IS
+ * user code (the runtime macro compiler can raise errors). */
+
+/* no-operand (1-byte instruction) */
+extern HB_EXPORT int hb_vmsh_macropushindex( void );
+extern HB_EXPORT int hb_vmsh_macropushref  ( void );
+extern HB_EXPORT int hb_vmsh_macrosymbol   ( void );
+extern HB_EXPORT int hb_vmsh_macrotext     ( void );
+
+/* 1-byte flag operand */
+extern HB_EXPORT int hb_vmsh_macropop         ( int flag );
+extern HB_EXPORT int hb_vmsh_macropopaliased  ( int flag );
+extern HB_EXPORT int hb_vmsh_macropush        ( int flag );
+extern HB_EXPORT int hb_vmsh_macropushlist    ( int flag );
+extern HB_EXPORT int hb_vmsh_macropushpare    ( int flag );
+extern HB_EXPORT int hb_vmsh_macropushaliased ( int flag );
+
+/* 2-byte MKUSHORT operand */
+extern HB_EXPORT int hb_vmsh_macroarraygen ( int usFlags );
+extern HB_EXPORT int hb_vmsh_macrodo       ( int usParams );
+extern HB_EXPORT int hb_vmsh_macrofunc     ( int usParams );
+extern HB_EXPORT int hb_vmsh_macrosend     ( int usParams );
+
 HB_EXTERN_END
 
 #endif
