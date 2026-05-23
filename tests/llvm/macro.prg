@@ -7,6 +7,7 @@
 //   MACROPUSH        x := &cName            (macro read into local)
 //   MACROPOP         &cName := 99           (macro write)
 //   MACROFUNC        Upper( &cArg )         (named call, macro in arglist)
+//   MACROPUSHLIST    Upper( &cArg ), Show( &cArg )   (macro arg list — co-emitted w/ MACROFUNC and MACRODO)
 //   MACRODO          Show( &cArg )          (statement-position named call w/ macro arg)
 //   MACROTEXT        "hello, &cWhat"        (string literal w/ macro substitution)
 //   MACROPUSHREF     TakeRef( @&cName )     (pass-by-reference macro)
@@ -29,6 +30,7 @@ function ReadVar()
    local   x
    local   cName := "n"
    private n     := 7
+   // assignment form — `? &cName` would compile to MACROPUSHLIST+MACRODO, not MACROPUSH.
    x := &cName
    ? x
    return nil
