@@ -13690,6 +13690,8 @@ HB_EXPORT int hb_vmsh_seqbegin( const unsigned char * pRecoverAddr )
 HB_EXPORT int hb_vmsh_seqend( void )
 {
    HB_STACK_TLS_PRELOAD
+   /* Interpreter also restores its local bCanRecover from envelope.flags here;
+    * the shim has no equivalent — compile-time region tracking is the substitute. */
    hb_stackSetRecoverBase( hb_stackItemFromTop( HB_RECOVER_STATE )->item.asRecover.base );
    hb_stackDec();           /* pop the envelope */
    hb_stackPop();           /* pop the break-value slot */
@@ -13699,6 +13701,8 @@ HB_EXPORT int hb_vmsh_seqend( void )
 HB_EXPORT int hb_vmsh_seqrecover( void )
 {
    HB_STACK_TLS_PRELOAD
+   /* Interpreter also restores its local bCanRecover from envelope.flags here;
+    * the shim has no equivalent — compile-time region tracking is the substitute. */
    hb_stackSetRecoverBase( hb_stackItemFromTop( HB_RECOVER_STATE )->item.asRecover.base );
    hb_stackDec();           /* pop envelope; leave break-value as next stack top */
    return 0;
@@ -13737,6 +13741,10 @@ HB_EXPORT int hb_vmsh_alwaysbegin( const unsigned char * pAlwaysEndAddr )
    return 0;
 }
 
+/* Returns the pending action request (HB_QUIT_REQUESTED=1, HB_BREAK_REQUESTED=2,
+ * HB_ENDPROC_REQUESTED=4, or 0) so the emitter can re-dispatch through any
+ * enclosing SEQUENCE region. Unlike all other group I shims, the return value
+ * carries semantic content — it is NOT a 0/non-zero error flag. */
 HB_EXPORT int hb_vmsh_alwaysend( void )
 {
    HB_STACK_TLS_PRELOAD
