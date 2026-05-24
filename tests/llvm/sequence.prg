@@ -18,6 +18,7 @@ function Main()
    Nested()
    TryFinallyOk()
    TryFinallyBrk()
+   TryCondBrk()
    ? "main done"
    return nil
 
@@ -86,5 +87,18 @@ function TryFinallyBrk()
       end sequence
    recover
       ? "outer-recovered"
+   end sequence
+   return nil
+
+function TryCondBrk()
+   local lFlag := .T.
+   begin sequence
+      ? "cond-pre"
+      if lFlag
+         break
+      endif
+      ? "unreachable"
+   recover
+      ? "cond-caught"
    end sequence
    return nil
