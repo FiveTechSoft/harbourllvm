@@ -1633,6 +1633,9 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
     * --------------------------------------------------------------------- */
    fprintf( yyc, "; Harbour LLVM IR - generated from %s\n",
             HB_COMP_PARAM->szFile );
+#if defined( __APPLE__ )
+   fprintf( yyc, "target triple = \"x86_64-apple-darwin\"\n" );
+#endif
    fprintf( yyc, "%%HB_SYMB = type { i8*, i64, i8*, i8* }\n\n" );
    fprintf( yyc, "declare void @hb_vmExecute(i8*, %%HB_SYMB*)\n" );
    fprintf( yyc, "declare %%HB_SYMB* @hb_vmProcessSymbols("
