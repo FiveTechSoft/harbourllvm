@@ -241,6 +241,79 @@ static void hb_llvmSLEmitActionCheck( FILE * yyc, HB_SIZE pos,
    }
 }
 
+/* Like hb_llvmSLEmitActionCheck, but accepts custom register names — used
+ * by the conditional-jump cases (which call the action shim hb_vmsh_poplogical
+ * with result %rjp<pos> and need the action OK branch to go to %jpdone<pos>
+ * rather than the standard %<next>) and by the PUSHFUNCSYM intermediate check.
+ * szResultReg is the SSA register the call result was bound to (e.g. "rjp",
+ * which the caller has already used in its fprintf — the helper just reads
+ * the name + pos to build "%rjp<pos>"). szIcmpReg is the name to bind the
+ * comparison result to. szOkLabel is where to branch when action == 0.
+ *
+ * IMPORTANT: the SSA names produced inside the helper are all qualified by
+ * szIcmpReg so the same pos can host two seq-dispatch blocks (PUSHFUNCSYM
+ * calls this helper twice at the same pos with different szIcmpReg stems). */
+static void hb_llvmSLEmitActionCheckNamed( FILE * yyc, HB_SIZE pos,
+                                            const char * szResultReg,
+                                            const char * szIcmpReg,
+                                            const char * szOkLabel,
+                                            struct hb_seq_region * seq_stack,
+                                            int seq_depth )
+{
+   if( seq_depth == 0 )
+   {
+      fprintf( yyc,
+               "  %%%s%lu = icmp ne i32 %%%s%lu, 0\n"
+               "  br i1 %%%s%lu, label %%epilogue, label %%%s\n",
+               szIcmpReg, ( unsigned long ) pos,
+               szResultReg, ( unsigned long ) pos,
+               szIcmpReg, ( unsigned long ) pos, szOkLabel );
+   }
+   else
+   {
+      HB_SIZE recover_target = ( HB_SIZE ) -1;
+      HB_SIZE always_target  = ( HB_SIZE ) -1;
+      int i;
+      for( i = seq_depth - 1; i >= 0; --i )
+      {
+         if( recover_target == ( HB_SIZE ) -1 )
+            recover_target = seq_stack[ i ].recover_pos;
+         if( always_target == ( HB_SIZE ) -1 && seq_stack[ i ].fIsAlways )
+            always_target = seq_stack[ i ].always_pos;
+         if( recover_target != ( HB_SIZE ) -1 && always_target != ( HB_SIZE ) -1 )
+            break;
+      }
+      /* SSA names are qualified by szIcmpReg stem so two calls at the same
+       * pos (e.g. PUSHFUNCSYM first/second shim) produce distinct labels. */
+      fprintf( yyc,
+               "  %%%s%lu = icmp ne i32 %%%s%lu, 0\n"
+               "  br i1 %%%s%lu, label %%seqd%s%lu, label %%%s\n"
+               "seqd%s%lu:\n"
+               "  %%brk%s%lu = icmp eq i32 %%%s%lu, 2\n"     /* HB_BREAK_REQUESTED */
+               "  br i1 %%brk%s%lu, label %%i%lu, label %%seqq%s%lu\n"
+               "seqq%s%lu:\n",
+               szIcmpReg, ( unsigned long ) pos,
+               szResultReg, ( unsigned long ) pos,
+               szIcmpReg, ( unsigned long ) pos, szIcmpReg, ( unsigned long ) pos, szOkLabel,
+               szIcmpReg, ( unsigned long ) pos,
+               szIcmpReg, ( unsigned long ) pos, szResultReg, ( unsigned long ) pos,
+               szIcmpReg, ( unsigned long ) pos, ( unsigned long ) recover_target, szIcmpReg, ( unsigned long ) pos,
+               szIcmpReg, ( unsigned long ) pos );
+      if( always_target != ( HB_SIZE ) -1 )
+      {
+         fprintf( yyc,
+                  "  %%qit%s%lu = icmp eq i32 %%%s%lu, 1\n"    /* HB_QUIT_REQUESTED */
+                  "  br i1 %%qit%s%lu, label %%i%lu, label %%epilogue\n",
+                  szIcmpReg, ( unsigned long ) pos, szResultReg, ( unsigned long ) pos,
+                  szIcmpReg, ( unsigned long ) pos, ( unsigned long ) always_target );
+      }
+      else
+      {
+         fprintf( yyc, "  br label %%epilogue\n" );
+      }
+   }
+}
+
 /* Pass A */
 static HB_BOOL hb_llvmSLPrecheck( PHB_HFUNC pFunc, HB_PCMAP * pMap )
 {
@@ -440,32 +513,26 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
          }
 
-         /* Group I limitation: the conditional-jump family routes the
-          * %cjp<pos> error/action check from hb_vmsh_poplogical directly to
-          * %epilogue, NOT through the SEQUENCE region dispatch. If a BREAK
-          * raised inside hb_vmsh_poplogical (e.g. via an error handler hook)
-          * occurred while inside a BEGIN SEQUENCE region, it would exit the
-          * function instead of routing to the recover block. In practice
-          * hb_vmsh_poplogical only signals type errors; BREAK is not a
-          * documented path through it, so this limitation is benign for
-          * normal use. Documented in the group I plan, Task 3 Step 4. */
+         /* Group I: conditional-jump action check goes through the
+          * SEQUENCE region dispatch like all other shim sites. */
          case HB_P_JUMPFALSENEAR:
          case HB_P_JUMPFALSE:
          case HB_P_JUMPFALSEFAR:
          {
             HB_ISIZ disp   = hb_pcodeJumpOffset( &pCode[ pos ] );
             HB_ISIZ target = ( HB_ISIZ ) pos + disp;
+            char szJpDone[ 32 ];
+            hb_snprintf( szJpDone, sizeof( szJpDone ), "jpdone%lu", ( unsigned long ) pos );
             fprintf( yyc,
-                     "  %%rjp%lu = call i32 @hb_vmsh_poplogical(i32* %%jp%lu)\n"
-                     "  %%cjp%lu = icmp ne i32 %%rjp%lu, 0\n"
-                     "  br i1 %%cjp%lu, label %%epilogue, label %%jpdone%lu\n"
+                     "  %%rjp%lu = call i32 @hb_vmsh_poplogical(i32* %%jp%lu)\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos );
+            hb_llvmSLEmitActionCheckNamed( yyc, pos, "rjp", "cjp", szJpDone,
+                                           seq_stack, seq_depth );
+            fprintf( yyc,
                      "jpdone%lu:\n"
                      "  %%vjp%lu = load i32, i32* %%jp%lu\n"
                      "  %%bjp%lu = icmp ne i32 %%vjp%lu, 0\n"
                      "  br i1 %%bjp%lu, label %%%s, label %%i%ld\n",
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
@@ -482,17 +549,18 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          {
             HB_ISIZ disp   = hb_pcodeJumpOffset( &pCode[ pos ] );
             HB_ISIZ target = ( HB_ISIZ ) pos + disp;
+            char szJpDone[ 32 ];
+            hb_snprintf( szJpDone, sizeof( szJpDone ), "jpdone%lu", ( unsigned long ) pos );
             fprintf( yyc,
-                     "  %%rjp%lu = call i32 @hb_vmsh_poplogical(i32* %%jp%lu)\n"
-                     "  %%cjp%lu = icmp ne i32 %%rjp%lu, 0\n"
-                     "  br i1 %%cjp%lu, label %%epilogue, label %%jpdone%lu\n"
+                     "  %%rjp%lu = call i32 @hb_vmsh_poplogical(i32* %%jp%lu)\n",
+                     ( unsigned long ) pos, ( unsigned long ) pos );
+            hb_llvmSLEmitActionCheckNamed( yyc, pos, "rjp", "cjp", szJpDone,
+                                           seq_stack, seq_depth );
+            fprintf( yyc,
                      "jpdone%lu:\n"
                      "  %%vjp%lu = load i32, i32* %%jp%lu\n"
                      "  %%bjp%lu = icmp ne i32 %%vjp%lu, 0\n"
                      "  br i1 %%bjp%lu, label %%i%ld, label %%%s\n",
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
                      ( unsigned long ) pos, ( unsigned long ) pos,
@@ -717,81 +785,76 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
          }
 
          /* PUSHFUNCSYM: push symbol + push NIL self slot (two shim calls).
-          * The intermediate (first) action check keeps the old epilogue shape;
-          * only the final check uses the region-aware dispatch. */
+          * Both action checks route through the SEQUENCE region dispatch. */
          case HB_P_PUSHFUNCSYM:
          {
             HB_USHORT uiSym = HB_PCODE_MKUSHORT( &pCode[ pos + 1 ] );
-            /* Sub-block a: push the symbol (intermediate check — keep old shape). */
+            char szIpfsA[ 32 ];
+            hb_snprintf( szIpfsA, sizeof( szIpfsA ), "ipfs%lua", ( unsigned long ) pos );
+            /* Sub-block a: push the symbol — action check routes to %ipfs<pos>a on OK. */
             fprintf( yyc,
                      "  %%r%lu = call i32 @hb_vmsh_pushsymbol(%%HB_SYMB* getelementptr"
-                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n"
-                     "  %%c%lu = icmp ne i32 %%r%lu, 0\n"
-                     "  br i1 %%c%lu, label %%epilogue, label %%ipfs%lua\n"
+                     "([%d x %%HB_SYMB], [%d x %%HB_SYMB]* @symbols_table, i32 0, i32 %u))\n",
+                     ( unsigned long ) pos,
+                     iSymCount, iSymCount, ( unsigned ) uiSym );
+            hb_llvmSLEmitActionCheckNamed( yyc, pos, "r", "c", szIpfsA,
+                                           seq_stack, seq_depth );
+            /* Sub-block b: push NIL self slot — second shim uses %r<pos>b/%c<pos>b names.
+             * The Named helper would form %rb<pos>/%cb<pos>, which differ from the
+             * %r<pos>b/%c<pos>b naming already established here; inline the dispatch
+             * so the generated SSA names stay consistent with the existing scheme. */
+            fprintf( yyc,
                      "ipfs%lua:\n"
                      "  %%r%lub = call i32 @hb_vmsh_pushnil()\n",
                      ( unsigned long ) pos,
-                     iSymCount, iSymCount, ( unsigned ) uiSym,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos, ( unsigned long ) pos,
-                     ( unsigned long ) pos,
                      ( unsigned long ) pos );
-            /* Use a fake "pos" for the second shim's action check.
-             * We emit %r<pos>b already, so we need a distinct temp name.
-             * Reuse the same pos value but the 'b' variant — we can't call
-             * hb_llvmSLEmitActionCheck directly since it uses %%r%lu internally.
-             * Emit the final check manually, routing through region-aware dispatch. */
+            if( seq_depth == 0 )
             {
-               /* Build a temporary label name for the "b" sub-check. We emit
-                * the check inline since the register name is %r<pos>b not %r<pos>. */
-               if( seq_depth == 0 )
+               fprintf( yyc,
+                        "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
+                        "  br i1 %%c%lub, label %%epilogue, label %%%s\n",
+                        ( unsigned long ) pos, ( unsigned long ) pos,
+                        ( unsigned long ) pos, szNextLabel );
+            }
+            else
+            {
+               HB_SIZE recover_target = ( HB_SIZE ) -1;
+               HB_SIZE always_target  = ( HB_SIZE ) -1;
+               int ii;
+               for( ii = seq_depth - 1; ii >= 0; --ii )
+               {
+                  if( recover_target == ( HB_SIZE ) -1 )
+                     recover_target = seq_stack[ ii ].recover_pos;
+                  if( always_target == ( HB_SIZE ) -1 && seq_stack[ ii ].fIsAlways )
+                     always_target = seq_stack[ ii ].always_pos;
+                  if( recover_target != ( HB_SIZE ) -1 && always_target != ( HB_SIZE ) -1 )
+                     break;
+               }
+               fprintf( yyc,
+                        "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
+                        "  br i1 %%c%lub, label %%seqdb%lu, label %%%s\n"
+                        "seqdb%lu:\n"
+                        "  %%brkb%lu = icmp eq i32 %%r%lub, 2\n"
+                        "  br i1 %%brkb%lu, label %%i%lu, label %%seqqb%lu\n"
+                        "seqqb%lu:\n",
+                        ( unsigned long ) pos, ( unsigned long ) pos,
+                        ( unsigned long ) pos, ( unsigned long ) pos, szNextLabel,
+                        ( unsigned long ) pos,
+                        ( unsigned long ) pos, ( unsigned long ) pos,
+                        ( unsigned long ) pos, ( unsigned long ) recover_target,
+                        ( unsigned long ) pos,
+                        ( unsigned long ) pos );
+               if( always_target != ( HB_SIZE ) -1 )
                {
                   fprintf( yyc,
-                           "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
-                           "  br i1 %%c%lub, label %%epilogue, label %%%s\n",
+                           "  %%qitb%lu = icmp eq i32 %%r%lub, 1\n"
+                           "  br i1 %%qitb%lu, label %%i%lu, label %%epilogue\n",
                            ( unsigned long ) pos, ( unsigned long ) pos,
-                           ( unsigned long ) pos, szNextLabel );
+                           ( unsigned long ) pos, ( unsigned long ) always_target );
                }
                else
                {
-                  HB_SIZE recover_target = ( HB_SIZE ) -1;
-                  HB_SIZE always_target  = ( HB_SIZE ) -1;
-                  int ii;
-                  for( ii = seq_depth - 1; ii >= 0; --ii )
-                  {
-                     if( recover_target == ( HB_SIZE ) -1 )
-                        recover_target = seq_stack[ ii ].recover_pos;
-                     if( always_target == ( HB_SIZE ) -1 && seq_stack[ ii ].fIsAlways )
-                        always_target = seq_stack[ ii ].always_pos;
-                     if( recover_target != ( HB_SIZE ) -1 && always_target != ( HB_SIZE ) -1 )
-                        break;
-                  }
-                  fprintf( yyc,
-                           "  %%c%lub = icmp ne i32 %%r%lub, 0\n"
-                           "  br i1 %%c%lub, label %%seqdb%lu, label %%%s\n"
-                           "seqdb%lu:\n"
-                           "  %%brkb%lu = icmp eq i32 %%r%lub, 2\n"
-                           "  br i1 %%brkb%lu, label %%i%lu, label %%seqqb%lu\n"
-                           "seqqb%lu:\n",
-                           ( unsigned long ) pos, ( unsigned long ) pos,
-                           ( unsigned long ) pos, ( unsigned long ) pos, szNextLabel,
-                           ( unsigned long ) pos,
-                           ( unsigned long ) pos, ( unsigned long ) pos,
-                           ( unsigned long ) pos, ( unsigned long ) recover_target,
-                           ( unsigned long ) pos,
-                           ( unsigned long ) pos );
-                  if( always_target != ( HB_SIZE ) -1 )
-                  {
-                     fprintf( yyc,
-                              "  %%qitb%lu = icmp eq i32 %%r%lub, 1\n"
-                              "  br i1 %%qitb%lu, label %%i%lu, label %%epilogue\n",
-                              ( unsigned long ) pos, ( unsigned long ) pos,
-                              ( unsigned long ) pos, ( unsigned long ) always_target );
-                  }
-                  else
-                  {
-                     fprintf( yyc, "  br label %%epilogue\n" );
-                  }
+                  fprintf( yyc, "  br label %%epilogue\n" );
                }
             }
             break;
