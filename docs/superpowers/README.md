@@ -60,6 +60,27 @@ The `tests/llvm/fallback.prg` sentinel exercises one of these (currently
 `HB_P_PUSHTIMESTAMP`) to keep `tests/llvm/run.sh` honest — if a future change
 accidentally straight-lines it, the sentinel test fails.
 
+## Runtime architecture FAQ
+
+How `harbour -GL` produces an EXE, what happens in-process, how libraries
+link — answered in detail in the main project README's
+[FAQ section](../../README.md#faq) and on the
+[GitHub Pages site](https://fivetechsoft.github.io/harbourllvm/#faq).
+
+Short version:
+
+- `harbour -GL foo.prg` produces `foo.exe` directly, in one command, with
+  no external C/C++ toolchain on PATH.
+- Each build is a fresh compile + fresh link (verifiable via `sha1sum`);
+  there is no pre-built template that gets patched.
+- `harbour.exe` itself does the linking, via embedded **LLD** wrapped by a
+  small C++ shim (`src/compiler/hb_lldshim.cpp`) that calls
+  `lld::mingw::link` in-process.
+- The linker pulls **bundled MinGW runtime** from `lib/win/mingw64-rt/`
+  (`crt2.o`, `libgcc.a`, MinGW C lib, all Win32 import libs) and **Harbour
+  runtime** from `lib/win/mingw64/` (`libhbvm.a`, `libhbrtl.a`, …). The
+  end-user's machine needs no toolchain.
+
 ## Workflow
 
 Every unit followed the same loop:

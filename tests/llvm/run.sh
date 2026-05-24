@@ -451,6 +451,7 @@ cat > "$OUT/index.html" <<HTML
  <div class="hero-actions">
   <a class="btn primary" href="#try">Try it locally</a>
   <a class="btn" href="https://github.com/FiveTechSoft/harbourllvm">GitHub repository</a>
+  <a class="btn" href="#faq">FAQ</a>
   <a class="btn" href="#tests">See test results</a>
  </div>
 
@@ -604,6 +605,88 @@ win-make.exe</code></pre>
    </div>
   </div>
 
+ </div>
+</section>
+
+<!-- FAQ -->
+<section id="faq">
+ <h2>Frequently asked questions</h2>
+ <p class="lead">Common questions about how the LLVM backend works at run
+  time. The full source-level answers are in the
+  <a href="https://github.com/FiveTechSoft/harbourllvm/blob/master/README.md#faq">README FAQ</a>.</p>
+
+ <div class="features" style="grid-template-columns:1fr">
+  <div class="col">
+   <h3>Does <code>harbour -GL</code> produce a <code>.exe</code> directly?</h3>
+   <p><strong>Yes &mdash; in one command, in-process, no external C/C++
+    compiler or linker on PATH.</strong> The intermediate <code>.ll</code>
+    and <code>.o</code> are kept next to the binary for inspection.</p>
+   <pre><code>\$ harbour -GL -ohello hello.prg
+\$ ls hello.*
+hello.prg  hello.ll  hello.o  hello.exe   # source + IR + object + binary
+\$ ./hello
+hello, world</code></pre>
+  </div>
+
+  <div class="col">
+   <h3>Is the <code>.exe</code> a pre-built template that gets patched, or freshly compiled each time?</h3>
+   <p><strong>Freshly compiled and linked every time.</strong> Each invocation
+    produces a unique binary (verifiable via <code>sha1sum</code>) &mdash; IR
+    generated fresh from source, object compiled fresh, executable linked
+    fresh. No "template + patch" shortcut. Two different programs produce
+    different IRs of different sizes, different objects, different binaries
+    with different SHA1s.</p>
+   <p>The ~1.3 MB common floor is the Harbour runtime statically linked in
+    &mdash; the variable delta on top is the program's own native code.</p>
+  </div>
+
+  <div class="col">
+   <h3>Who actually does the linking?</h3>
+   <p><strong><code>harbour.exe</code> itself, via embedded LLD.</strong>
+    The <code>src/llvmbe/</code> directory builds <code>libhbllvm.a</code>
+    which contains:</p>
+   <ul>
+    <li><strong>libLLVM C API</strong> &mdash; turns the IR into a native object file.</li>
+    <li><strong>LLD</strong> &mdash; the LLVM linker, wrapped by a tiny C++
+        shim (<code>src/compiler/hb_lldshim.cpp</code>) so C code can call
+        <code>lld::mingw::link</code> in-process.</li>
+   </ul>
+   <p>When <code>harbour -GL</code> runs, after emitting the <code>.ll</code>
+    it calls into <code>libhbllvm.a</code>'s <code>emitObject</code> then
+    <code>linkExe</code> &mdash; no process fork, no external tool, no
+    shell-out. <code>libhbllvm.a</code> is linked <strong>only into
+    <code>harbour.exe</code></strong> via a dispatch table
+    (<code>g_hb_llvm_backend</code>), so <code>hbmk2</code> and
+    <code>hbrun</code> stay small.</p>
+  </div>
+
+  <div class="col">
+   <h3>How are libraries linked into the final executable?</h3>
+   <p><code>harbour.exe</code> builds a <code>ld.lld</code>-style argv in
+    <code>src/compiler/hb_llvmobj.c</code> and hands it to LLD. The argv
+    references three sets of libraries, <strong>all shipped with
+    Harbour</strong>:</p>
+   <table class="coverage">
+    <thead><tr><th>Set</th><th>Location</th><th>Contents</th></tr></thead>
+    <tbody>
+     <tr><td class="tag">CRT</td><td><code>lib/win/mingw64-rt/</code></td>
+         <td><code>crt2.o</code>, <code>crtbegin/end.o</code>, <code>libgcc.a</code>,
+             <code>libmingwex.a</code>, <code>libmsvcrt.a</code>, plus all Win32
+             import libs (<code>kernel32</code>, <code>user32</code>, <code>ws2_32</code>, &hellip;)</td></tr>
+     <tr><td class="tag">HRT</td><td><code>lib/win/mingw64/</code></td>
+         <td><code>libhbvm.a</code>, <code>libhbrtl.a</code>, <code>libhbcommon.a</code>,
+             <code>libhblang.a</code>, <code>libhbcpage.a</code>, &hellip;</td></tr>
+     <tr><td class="tag">GT</td><td><code>lib/win/mingw64-rt/</code></td>
+         <td><code>hb_llvmgtstd.o</code> &mdash; pre-compiled <code>gtstd</code> GT driver
+             registration (forced via <code>--undefined HB_FUN_HB_GT_STD_DEFAULT</code>)</td></tr>
+    </tbody>
+   </table>
+   <p>Plus this program's own freshly-compiled <code>.o</code>. The
+    end-user's machine needs <strong>no toolchain at all</strong> &mdash;
+    Harbour ships its own C runtime, MinGW import libs, the Harbour runtime,
+    and the LLVM/LLD code generator inside <code>harbour.exe</code>. One
+    install, one binary, runnable executables out.</p>
+  </div>
  </div>
 </section>
 

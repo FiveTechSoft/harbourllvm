@@ -130,6 +130,100 @@ the runtime sees the same symbols whether straight-line or interpreted.
 
 ---
 
+## FAQ
+
+### Does `harbour -GL` produce a `.exe` directly?
+
+Yes — in one command, in-process, with **no external C/C++ compiler or linker
+required on PATH**. Verified:
+
+```sh
+$ ls hello.*
+hello.prg                                 # source
+$ harbour -GL -ohello hello.prg
+$ ls hello.*
+hello.prg  hello.ll  hello.o  hello.exe   # source + IR + object + binary
+$ ./hello
+hello, world
+```
+
+The intermediate `.ll` and `.o` are kept next to the binary for inspection.
+
+### Is the `.exe` a pre-built template that gets patched, or freshly compiled each time?
+
+**Freshly compiled and linked every time.** Each invocation produces a unique
+binary (verifiable via `sha1sum`) — the IR is generated fresh from the
+source, the object is compiled fresh, the executable is linked fresh. There
+is no "template + patch" shortcut.
+
+Two different programs produce different IRs of different sizes, different
+objects of different sizes, and different binaries with different SHA1s. The
+~1.3 MB common floor is the Harbour runtime statically linked in — the
+variable delta on top is the program's own native code.
+
+### Who actually does the linking?
+
+`harbour.exe` itself, via embedded LLD. The `src/llvmbe/` directory builds
+`libhbllvm.a`, which contains:
+
+- **libLLVM** (C API) — turns the IR into a native object file.
+- **LLD** — the LLVM linker, wrapped by a tiny C++ shim
+  (`src/compiler/hb_lldshim.cpp`) so C code can call `lld::mingw::link`
+  in-process.
+
+When `harbour -GL` runs, after emitting the `.ll` it calls into
+`libhbllvm.a`'s entry points (`emitObject` then `linkExe`) — no process
+fork, no external tool, no shell-out.
+
+`libhbllvm.a` is linked **only into `harbour.exe`** via a dispatch table
+(`g_hb_llvm_backend` plus a `__attribute__((constructor))` registrar), so
+`hbmk2` and `hbrun` stay small — they don't drag in LLVM/LLD.
+
+### How are libraries linked into the final executable?
+
+`harbour.exe` builds a `ld.lld`-style argv in `src/compiler/hb_llvmobj.c`
+and hands it to LLD. The argv references three sets of libraries, all
+shipped with Harbour:
+
+| Set | Location | Contents |
+|-----|----------|----------|
+| **Bundled MinGW runtime** | `lib/win/mingw64-rt/` | `crt2.o`, `crtbegin.o`, `crtend.o`, `libgcc.a`, `libgcc_eh.a`, `libmingw32.a`, `libmingwex.a`, `libmoldname.a`, `libmsvcrt.a`, plus all Win32 import libs (`libkernel32.a`, `libuser32.a`, `libws2_32.a`, …) |
+| **Harbour runtime** | `lib/win/mingw64/` | `libhbvm.a`, `libhbrtl.a`, `libhbcommon.a`, `libhblang.a`, `libhbcpage.a`, … |
+| **GT driver registration** | `lib/win/mingw64-rt/hb_llvmgtstd.o` | Pre-compiled `gtstd` registration object (forced in via `--undefined HB_FUN_HB_GT_STD_DEFAULT`) |
+
+Plus this program's own freshly-compiled `.o`.
+
+The link line looks roughly like:
+
+```
+ld.lld --subsystem console -o hello.exe \
+  <prefix>/lib/win/mingw64-rt/crt2.o \
+  hello.o \
+  <prefix>/lib/win/mingw64-rt/hb_llvmgtstd.o \
+  --undefined HB_FUN_HB_GT_STD_DEFAULT \
+  -L <prefix>/lib/win/mingw64 \
+  -L <prefix>/lib/win/mingw64-rt \
+  --start-group -lhbvm -lhbrtl -lhbcommon ... --end-group \
+  -lkernel32 -luser32 -lws2_32 ... \
+  -lstdc++ -lmingw32 -lgcc -lgcc_eh -lmingwex -lmoldname -lmsvcrt
+```
+
+**Result: a fully self-contained `.exe`.** The end-user machine needs no
+toolchain at all — Harbour ships its own C runtime, MinGW import libs, the
+Harbour runtime, and the LLVM/LLD code generator inside `harbour.exe`. One
+install, one binary, runnable executables out.
+
+### Is there anything left to implement? Anything to fix?
+
+No within the planned scope. All nine opcode groups (A–I) complete + all
+foundation plans (1-3). 26 corpus programs verified byte-identical against
+the C backend; CI publishes every run to GitHub Pages. The permanent-
+fallback opcode set (timestamp / date literals, `$` substring, static-frame,
+var-arg-frame, hidden strings, …) is intentional infrastructure — programs
+using those opcodes still build and run via the interpreter fallback.
+
+---
+
 ## How it is verified
 
 [`tests/llvm/run.sh`](tests/llvm/run.sh) is the gate. For every program in
