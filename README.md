@@ -38,6 +38,7 @@ straight to a native binary and links against the precompiled Harbour runtime
 | F — SWITCH | Straight-line IR for `SWITCH` statements — a real LLVM `switch` over the matched case index. | **done** |
 | G — codeblocks | Straight-line IR for codeblock-literal construction (`{\|args\| ...}`); block bodies still run through `hb_vmExecute` on `Eval()` — identical to the C backend. | **done** |
 | H — macros | Straight-line IR for the 14 compiler-emitted macro opcodes (`&var`, `&("expr")`, `text…endtext`, `@&var`, aliased `M->&fld`); same `hb_macro*`/`hb_vmMacro*` helpers as the interpreter. | **done** |
+| I — SEQUENCE | Straight-line IR for `BEGIN SEQUENCE … RECOVER … END` (try/catch) and `BEGIN SEQUENCE … ALWAYS … END` (try/finally); compile-time region tracking + region-aware per-shim dispatch routes `HB_BREAK_REQUESTED` to the matching RECOVER block and `HB_QUIT_REQUESTED` to the matching ALWAYS block in-function. | **done** |
 
 Plan 2 (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API to
 turn its IR into a native object file and embeds the LLD linker (via a small
@@ -52,13 +53,13 @@ comparisons, logical ops, jumps, function calls, return), `harbour -GL` now
 emits **straight-line native code** — one LLVM basic block per pcode opcode,
 each calling an exported `hb_vmsh_*` op shim — instead of handing the pcode
 array to the `hb_vmExecute` bytecode interpreter. Functions using opcodes
-outside the subset (macros, `BEGIN SEQUENCE`, static-variable frames, …)
-fall back, whole-function, to the interpreter, so every program stays
-correct. This
+outside the subset (timestamp literals, `$` substring tests, date literals,
+static-variable frames, var-arg frames, hidden strings, …) fall back,
+whole-function, to the interpreter, so every program stays correct. This
 removes the dispatch overhead; type specialization (the larger speedup) is
 possible future work.
 
-Opcode groups A–H extend the straight-line subset: group A covers FOR loops
+Opcode groups A–I extend the straight-line subset: group A covers FOR loops
 (`FOR..NEXT`, `FOR..STEP`) and the compound-assignment / increment-decrement
 operators; group B covers array and hash literals, element access and
 assignment, and array creation; group C covers database-field access, memory
@@ -71,8 +72,15 @@ construction (`{|args| ...}`) — the block value is built straight-line via a
 shim, the body keeps running through `hb_vmExecute` on `Eval()`; group H
 covers the 14 compiler-emitted macro opcodes (`&var`, `&("expr")`,
 `text…endtext`, `@&var`, aliased `M->&fld`), delegating to the same
-`hb_macro*`/`hb_vmMacro*` helpers used by the interpreter. Further opcode
-groups (SEQUENCE) are planned, each as its own spec.
+`hb_macro*`/`hb_vmMacro*` helpers used by the interpreter; group I covers
+SEQUENCE (`BEGIN SEQUENCE … RECOVER/ALWAYS … END`) via compile-time region
+tracking + region-aware per-shim action-request dispatch — BREAK routes to
+the matching RECOVER block, QUIT routes through ALWAYS, all in-function with
+no interpreter-loop pcode-pointer rewrite. With group I done, the original
+nine-group decomposition is complete; programs whose opcodes lie entirely
+inside the A–I subset straight-line fully, and any function using an opcode
+outside the subset falls back whole-function — a permanent, intentional
+safety net.
 
 The full design and step-by-step plans live in
 [`docs/superpowers/`](docs/superpowers/).
