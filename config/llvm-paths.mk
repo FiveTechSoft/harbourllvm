@@ -9,7 +9,7 @@ HB_LLVM_CONFIG := $(HB_LLVM_PREFIX)/bin/llvm-config
 # cleanly on platforms without LLVM installed — `harbour -GC` is fully
 # functional. Only `harbour -GL` (the in-process LLVM-to-native EXE path)
 # requires the SDK. See README's FAQ.
-HB_HAS_LLVM := $(if $(wildcard $(HB_LLVM_CONFIG)),yes,no)
+HB_HAS_LLVM := $(if $(wildcard $(HB_LLVM_CONFIG) $(HB_LLVM_CONFIG).exe),yes,no)
 
 ifeq ($(HB_HAS_LLVM),yes)
    HB_LLVM_CFLAGS := -I$(shell $(HB_LLVM_CONFIG) --includedir)
