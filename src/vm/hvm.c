@@ -13739,9 +13739,19 @@ HB_EXPORT int hb_vmsh_alwaysbegin( const unsigned char * pAlwaysEndAddr )
    PHB_ITEM pRecover = hb_stackItemFromTop( HB_RECOVER_STATE );
 
    pRecover->item.asRecover.recover = pAlwaysEndAddr;
-   /* fold pending request into flags, clear request */
-   pRecover->item.asRecover.flags  |= pRecover->item.asRecover.request;
-   pRecover->item.asRecover.request = 0;
+   /* Group I straight-line: capture the GLOBAL action request and clear it
+    * before the ALWAYS body runs. Interpreter splits this between its
+    * main-loop break-handler (captures global -> envelope.request + clears
+    * global) and the HB_P_ALWAYSBEGIN case (folds envelope.request into
+    * flags). Straight-line code has no main loop, so this shim collapses
+    * both steps: capture global directly into flags + clear global.
+    * envelope.request stays 0 (mirrors interpreter post-state). */
+   {
+      HB_USHORT uiRequest = hb_stackGetActionRequest();
+      pRecover->item.asRecover.flags  |= uiRequest;
+      pRecover->item.asRecover.request = 0;
+      hb_stackSetActionRequest( 0 );
+   }
    /* preserve RETURN value if ENDPROC was requested */
    if( pRecover->item.asRecover.flags & HB_ENDPROC_REQUESTED )
       hb_itemMove( hb_stackItemFromTop( HB_RECOVER_VALUE ), hb_stackReturnItem() );
