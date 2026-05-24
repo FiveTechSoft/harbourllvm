@@ -1,155 +1,185 @@
 # Harbour LLVM Backend
 
-A fork of [Harbour](https://github.com/harbour/core) — the free, multi-platform
-Clipper/xBase compiler — that adds an **LLVM backend**.
+**An [xBase](https://en.wikipedia.org/wiki/XBase) compiler that emits LLVM IR
+directly and links a native executable in-process — no external C/C++
+toolchain on PATH, no second-stage build.**
 
-The goal: make Harbour an LLVM frontend, the way Objective-C is a frontend to
-clang. The compiler parses `.prg` source, emits **LLVM IR directly**, and
-produces a native executable — so an end user can build xBase applications
-**without installing a separate C compiler**.
+[![GitHub Pages report](https://img.shields.io/badge/report-fivetechsoft.github.io%2Fharbourllvm-58a6ff?style=flat-square)](https://fivetechsoft.github.io/harbourllvm/)
+[![License](https://img.shields.io/badge/license-GPL%20%2B%20Harbour%20exception-2ea043?style=flat-square)](LICENSE.txt)
+[![Status](https://img.shields.io/badge/scope-complete-3fb950?style=flat-square)](#status)
+[![Upstream](https://img.shields.io/badge/upstream-harbour%2Fcore-8b949e?style=flat-square)](https://github.com/harbour/core)
 
-> This repository tracks `harbour/core`. The upstream Harbour README is kept as
+A fork of [Harbour](https://github.com/harbour/core) — the free,
+multi-platform Clipper/xBase compiler — turning `harbour` itself into the
+code generator. Just as `clang` compiles Objective-C straight to machine
+code and links against the precompiled `libobjc` runtime, this `harbour`
+compiles `.prg` straight to a native binary and links against the
+precompiled Harbour runtime (`hbvm`, `hbrtl`, …).
+
+> The upstream Harbour README is preserved as
 > [`README.harbour.md`](README.harbour.md).
 
-## Why
+---
 
-Standard Harbour compiles `.prg` → `.c`, then hands the C off to an external
-compiler (gcc / MSVC / clang) and a linker. The C compiler is a required, heavy
-dependency for every developer.
+## Quickstart
 
-Routing through LLVM removes that dependency: `harbour` itself becomes the code
-generator. Just as `clang` compiles Objective-C straight to machine code and
-links against the precompiled `libobjc` runtime, `harbour` compiles xBase
-straight to a native binary and links against the precompiled Harbour runtime
-(`hbvm`, `hbrtl`, …).
+```sh
+git clone https://github.com/FiveTechSoft/harbourllvm
+cd harbourllvm/core
+make                                          # or: win-make.exe on Windows (MinGW)
+
+cat > hello.prg <<'EOF'
+function Main()
+   ? "hello, world"
+   return nil
+EOF
+
+./bin/<platform>/harbour -GL hello.prg        # writes hello.ll, hello.o, hello.exe
+./hello
+# hello, world
+```
+
+The intermediate `.ll` and `.o` are kept next to the binary — open them to
+see the LLVM IR.
+
+---
+
+## What it does
+
+- Parses xBase `.prg` source like the standard `harbour -GC` does.
+- **Emits LLVM IR text** (`.ll`) instead of C — selected via `-GL`.
+- Embeds **libLLVM (C API)** to turn that IR into a native object file in
+  the same process.
+- Embeds **LLD** (via a small C++ shim) to link the executable — also
+  in-process, no external linker on PATH.
+- For every function whose pcode lies entirely inside the supported subset,
+  emits **straight-line native code**: one LLVM basic block per pcode
+  opcode, each calling an exported `hb_vmsh_*` runtime op shim — no
+  interpreter dispatch loop.
+- Functions using opcodes outside the subset fall back, whole-function, to
+  the `hb_vmExecute` interpreter — **correctness is always preserved**.
+
+## What you achieve
+
+- **Zero external toolchain.** No gcc / MSVC / clang / lld required on the
+  end-user's machine. One self-contained `harbour.exe`.
+- **100% Harbour-compatible.** The straight-line shims call the same
+  `hb_vm*` helpers the interpreter uses; every corpus program is
+  diff-checked byte-for-byte against the standard C-backend output.
+- **Nine opcode groups straight-lined** (see [Status](#status)).
+- **Permanent fallback safety net.** A small set of intentionally-unsupported
+  opcodes (timestamp / date literals, `$` substring, static-variable frames,
+  var-arg frames, hidden strings, …) keep working through the interpreter —
+  programs using them always build and always run, just without
+  straight-lining.
+- **Open to future type specialization.** Removing the dispatch loop is the
+  first half of the win; specializing local int/double slots is a natural
+  next step.
+
+---
 
 ## Status
 
-> **All planned scope complete** — Plans 1-3 + opcode groups A–I. `harbour -GL`
-> emits straight-line native code for every xBase construct the original
-> nine-group decomposition covered (FOR loops, arrays, RDD/memvars, OOP, FOR
-> EACH, SWITCH, codeblocks, macros, SEQUENCE). Programs that use opcodes
-> outside the subset (timestamp / date literals, `$` substring, static-frame,
-> var-arg-frame, hidden strings, …) fall back, whole-function, to the
-> `hb_vmExecute` interpreter — a permanent, intentional safety net.
-> Continuously verified by `tests/llvm/run.sh` against the C backend output;
-> the latest run is published to
-> [GitHub Pages](https://fivetechsoft.github.io/harbourllvm/).
+> **All planned scope complete** — Plans 1-3 + opcode groups A–I. Latest run
+> published continuously at
+> **<https://fivetechsoft.github.io/harbourllvm/>**.
 
-| Plan | Deliverable | State |
-|------|-------------|-------|
-| 1 — IR text emitter | `harbour -GL` emits LLVM IR text (`.ll`) equivalent to the C backend; validated with clang. | **done** |
-| 2 — Embed libLLVM + lld | `harbour -GL` produces an `.exe` directly — no external C compiler. | **done** |
-| 3 — Unroll pcode to IR | Exported runtime op shim; straight-line IR; no interpreter loop. | **done** |
-| A — FOR loops + compound assign | Straight-line IR for `FOR..NEXT`/`FOR..STEP` and `+=`/`-=`/`*=`/`/=`/`%=`/`^=`/`++`/`--`. | **done** |
-| B — arrays + hashes | Straight-line IR for array/hash literals, element access/assignment, `Array()`, `LOCAL a[m,n]`. | **done** |
-| C — RDD fields, memvars, aliases | Straight-line IR for database-field access, memvars, undeclared variables, aliased access, workarea selection. | **done** |
-| D — OOP messages | Straight-line IR for method calls (`oObj:method()`), `Self`, object-variable references, `WITH OBJECT` blocks. | **done** |
-| E — FOR EACH | Straight-line IR for `FOR EACH ... NEXT` loops (and `DESCEND`) over arrays, hashes, strings. | **done** |
-| F — SWITCH | Straight-line IR for `SWITCH` statements — a real LLVM `switch` over the matched case index. | **done** |
-| G — codeblocks | Straight-line IR for codeblock-literal construction (`{\|args\| ...}`); block bodies still run through `hb_vmExecute` on `Eval()` — identical to the C backend. | **done** |
-| H — macros | Straight-line IR for the 14 compiler-emitted macro opcodes (`&var`, `&("expr")`, `text…endtext`, `@&var`, aliased `M->&fld`); same `hb_macro*`/`hb_vmMacro*` helpers as the interpreter. | **done** |
-| I — SEQUENCE | Straight-line IR for `BEGIN SEQUENCE … RECOVER … END` (try/catch) and `BEGIN SEQUENCE … ALWAYS … END` (try/finally); compile-time region tracking + region-aware per-shim dispatch routes `HB_BREAK_REQUESTED` to the matching RECOVER block and `HB_QUIT_REQUESTED` to the matching ALWAYS block in-function. | **done** |
+### Foundation
 
-Plan 2 (Windows x86_64 / MinGW): `harbour.exe` embeds the libLLVM C API to
-turn its IR into a native object file and embeds the LLD linker (via a small
-C++ shim) to link it — using MinGW runtime objects bundled in
-`lib/win/mingw64-rt/`. `harbour -GL foo.prg` produces a runnable `foo.exe`
-with **no external C compiler or linker** on `PATH`, output identical to the C
-backend. LLVM lives in a side library (`libhbllvm.a`) embedded only into
-`harbour.exe`, so `hbmk2` / `hbrun` stay small.
+| # | Deliverable | State |
+|---|-------------|-------|
+| **1** — IR text emitter | `harbour -GL` emits LLVM IR text (`.ll`) equivalent to the C backend; validated with clang. | ✅ done |
+| **2** — Embed libLLVM + LLD | `harbour -GL` produces an `.exe` directly — no external C/C++ toolchain on PATH. | ✅ done |
+| **3** — Unroll pcode to IR | Exported runtime op shims; straight-line IR; no interpreter dispatch loop. | ✅ done |
 
-Plan 3: for functions within a supported pcode subset (locals, arithmetic,
-comparisons, logical ops, jumps, function calls, return), `harbour -GL` now
-emits **straight-line native code** — one LLVM basic block per pcode opcode,
-each calling an exported `hb_vmsh_*` op shim — instead of handing the pcode
-array to the `hb_vmExecute` bytecode interpreter. Functions using opcodes
-outside the subset (timestamp literals, `$` substring tests, date literals,
-static-variable frames, var-arg frames, hidden strings, …) fall back,
-whole-function, to the interpreter, so every program stays correct. This
-removes the dispatch overhead; type specialization (the larger speedup) is
-possible future work.
+### Opcode-group extensions
 
-Opcode groups A–I extend the straight-line subset: group A covers FOR loops
-(`FOR..NEXT`, `FOR..STEP`) and the compound-assignment / increment-decrement
-operators; group B covers array and hash literals, element access and
-assignment, and array creation; group C covers database-field access, memory
-variables, undeclared variables, aliased access, and workarea selection; group
-D covers OOP message sends (`oObj:method()`), `Self`, object-variable
-references, and `WITH OBJECT` blocks; group E covers `FOR EACH` loops over
-arrays, hashes and strings; group F covers `SWITCH` statements, lowered to a
-native LLVM `switch` instruction; group G covers codeblock-literal
-construction (`{|args| ...}`) — the block value is built straight-line via a
-shim, the body keeps running through `hb_vmExecute` on `Eval()`; group H
-covers the 14 compiler-emitted macro opcodes (`&var`, `&("expr")`,
-`text…endtext`, `@&var`, aliased `M->&fld`), delegating to the same
-`hb_macro*`/`hb_vmMacro*` helpers used by the interpreter; group I covers
-SEQUENCE (`BEGIN SEQUENCE … RECOVER/ALWAYS … END`) via compile-time region
-tracking + region-aware per-shim action-request dispatch — BREAK routes to
-the matching RECOVER block, QUIT routes through ALWAYS, all in-function with
-no interpreter-loop pcode-pointer rewrite. With group I done, the original
-nine-group decomposition is complete; programs whose opcodes lie entirely
-inside the A–I subset straight-line fully, and any function using an opcode
-outside the subset falls back whole-function — a permanent, intentional
-safety net.
+| Group | Covers | State |
+|-------|--------|-------|
+| **A** — FOR loops + compound assignment | `FOR..NEXT` / `FOR..STEP`, `+=`/`-=`/`*=`/`/=`/`%=`/`^=`/`++`/`--`. | ✅ done |
+| **B** — Arrays + hashes | Array/hash literals, element access/assignment, `Array()`, `LOCAL a[m,n]`. | ✅ done |
+| **C** — RDD fields, memvars, aliases | Database-field access, memvars, undeclared variables, aliased access, workarea selection. | ✅ done |
+| **D** — OOP messages | `oObj:method()`, `Self`, object-variable references, `WITH OBJECT`. | ✅ done |
+| **E** — FOR EACH | `FOR EACH ... NEXT` and `DESCEND` over arrays, hashes, strings. | ✅ done |
+| **F** — SWITCH | `SWITCH` lowered to a real LLVM `switch` over the matched case index. | ✅ done |
+| **G** — Codeblocks | Codeblock literal construction `{|args| ...}`; block bodies still run through `hb_vmExecute` on `Eval()` — identical to the C backend. | ✅ done |
+| **H** — Macros | 14 compiler-emitted macro opcodes: `&var`, `&("expr")`, `text…endtext`, `@&var`, aliased `M->&fld`. | ✅ done |
+| **I** — SEQUENCE | `BEGIN SEQUENCE … RECOVER … END` (try/catch) and `… ALWAYS … END` (try/finally) via compile-time region tracking + region-aware per-shim dispatch. | ✅ done |
 
-The full design and step-by-step plans live in
-[`docs/superpowers/`](docs/superpowers/).
+Spec + plan for every unit lives in
+[`docs/superpowers/`](docs/superpowers/) — one spec, one plan, executed
+task-by-task with two-stage code review per task.
 
-## Using the LLVM backend
+---
 
-```sh
-harbour -GL hello.prg      # -> hello.ll, hello.o, and hello.exe
-```
+## Architecture in one paragraph
 
-Hello-world example (`hello.prg`):
+`harbour -GL` runs the full Harbour compiler pipeline up to pcode generation
+unchanged, then dispatches to the LLVM backend. For each function the
+backend asks: *does every opcode lie inside the A–I subset?* If yes, it
+emits the function as **straight-line IR** — one basic block per opcode,
+each ending in a `call i32 @hb_vmsh_*` to the runtime op shim, followed by
+the standard action-request check (`icmp ne` + conditional `br` to
+`%epilogue` on non-zero). Inside an active `BEGIN SEQUENCE` region, that
+check becomes a 3-way dispatch (`HB_BREAK_REQUESTED` → matching RECOVER,
+`HB_QUIT_REQUESTED` → matching ALWAYS, else → propagate). If any opcode is
+outside the subset, the function's body is just one call to
+`hb_vmExecute(@.pcode.<func>, %symbols)` — fallback. Either way the module
+symbol table is registered through an `@llvm.global_ctors` constructor, so
+the runtime sees the same symbols whether straight-line or interpreted.
 
-```harbour
-function Main()
-   local cName := "world"
-   ? "hello, " + cName
-   return nil
-```
-
-```sh
-$ harbour -GL hello.prg
-$ ./hello
-hello, world
-```
-
-`-GL` selects the `HB_LANG_LLVM` output language, alongside the existing `-GC`
-(C) and `-GH` (portable object) backends. On a Harbour built with the embedded
-backend, `-GL` writes the LLVM IR, compiles it to a native object, and links
-`hello.exe` — all in-process, no external toolchain. The intermediate `.ll`
-and `.o` are kept for inspection.
-
-A function within the supported pcode subset is emitted as straight-line IR —
-one basic block per opcode, calling the `hb_vmsh_*` runtime op shim directly,
-with no bytecode dispatch. A function using an opcode outside the subset falls
-back to an LLVM function that hands its pcode to the `hb_vmExecute`
-interpreter. The module symbol table is registered, in both cases, through an
-`@llvm.global_ctors` constructor.
+---
 
 ## How it is verified
 
-[`tests/llvm/run.sh`](tests/llvm/run.sh) compiles every program in
-`tests/llvm/*.prg` with both backends, runs the LLVM verifier on the emitted IR,
-links the IR into a native executable, and diffs its output against the C
-backend. It also writes an HTML report containing the generated IR.
+[`tests/llvm/run.sh`](tests/llvm/run.sh) is the gate. For every program in
+`tests/llvm/*.prg` it:
 
-A GitHub Actions workflow ([`.github/workflows/llvm-ir.yml`](.github/workflows/llvm-ir.yml))
-runs this on every push and **publishes the report — including the generated
-LLVM IR — to GitHub Pages**:
+1. compiles with the **C backend** (`harbour -GC` → `hbmk2`) → reference exe;
+2. compiles with the **LLVM backend** (`harbour -GL`) → `.ll` IR text;
+3. runs the **LLVM verifier** (`clang -x ir`) on the IR;
+4. turns the IR into a native object and links it via `hbmk2` → LLVM exe;
+5. runs both executables and **diffs the output**;
+6. writes an HTML report with every program's source, IR, output, and
+   diff status — the page you see on GitHub Pages.
 
-➡ **https://fivetechsoft.github.io/harbourllvm/**
+Any failure on any program is a hard fail; CI publishes the result
+automatically:
 
-So the intermediate-code generation can be reviewed in a browser, no local
-build required.
+➡ **<https://fivetechsoft.github.io/harbourllvm/>**
+
+Run it locally with:
+
+```sh
+CLANG=clang tests/llvm/run.sh
+# -> build/llvm-ci/index.html
+```
+
+---
+
+## Project layout
+
+```
+core/
+├── bin/<platform>/harbour      # the compiler binary (built)
+├── include/hbvmsh.h            # exported runtime op shim declarations
+├── src/
+│   ├── compiler/
+│   │   ├── genllvm.c           # the LLVM IR emitter (-GL backend)
+│   │   ├── hb_pcdec.{c,h}      # pcode-opcode decoder used by the backend
+│   │   └── …
+│   └── vm/
+│       └── hvm.c               # the VM; hb_vmsh_* shims live at the end
+├── tests/llvm/                 # corpus + run.sh + smoke tests
+└── docs/superpowers/           # specs and implementation plans
+    ├── README.md               # index of every spec + plan
+    ├── specs/                  # 10 design documents
+    └── plans/                  # 12 step-by-step implementation plans
+```
+
+---
 
 ## Building
-
-Harbour builds with a standard C toolchain (this is needed to build *Harbour
-itself*, not to use the LLVM backend afterwards).
 
 ```sh
 # Linux / macOS
@@ -160,13 +190,24 @@ set HB_COMPILER=mingw64
 win-make.exe
 ```
 
-Run the LLVM backend checks locally:
+The C toolchain is needed to build *Harbour itself*, not to use the LLVM
+backend afterwards. After the build, an end user runs `harbour -GL foo.prg`
+and gets `foo.exe` directly — no C compiler on their PATH.
 
-```sh
-tests/llvm/run.sh
-```
+---
 
 ## License
 
-Same as Harbour — GPL-compatible with the Harbour exception. See
-[`LICENSE.txt`](LICENSE.txt).
+Same as Harbour — **GPL-compatible with the Harbour exception**. See
+[`LICENSE.txt`](LICENSE.txt). The Harbour exception means linking
+proprietary code against the Harbour runtime is explicitly allowed.
+
+---
+
+## Acknowledgements
+
+- The [Harbour project](https://harbour.github.io/) and everyone who has
+  worked on `harbour/core` over the years — the entire xBase frontend,
+  runtime, RDDs, and the bulk of the compiler are theirs.
+- The [LLVM project](https://llvm.org/) and LLD authors for a backend
+  toolchain clean enough to embed.
