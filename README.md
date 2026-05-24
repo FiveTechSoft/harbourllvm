@@ -25,6 +25,17 @@ straight to a native binary and links against the precompiled Harbour runtime
 
 ## Status
 
+> **All planned scope complete** — Plans 1-3 + opcode groups A–I. `harbour -GL`
+> emits straight-line native code for every xBase construct the original
+> nine-group decomposition covered (FOR loops, arrays, RDD/memvars, OOP, FOR
+> EACH, SWITCH, codeblocks, macros, SEQUENCE). Programs that use opcodes
+> outside the subset (timestamp / date literals, `$` substring, static-frame,
+> var-arg-frame, hidden strings, …) fall back, whole-function, to the
+> `hb_vmExecute` interpreter — a permanent, intentional safety net.
+> Continuously verified by `tests/llvm/run.sh` against the C backend output;
+> the latest run is published to
+> [GitHub Pages](https://fivetechsoft.github.io/harbourllvm/).
+
 | Plan | Deliverable | State |
 |------|-------------|-------|
 | 1 — IR text emitter | `harbour -GL` emits LLVM IR text (`.ll`) equivalent to the C backend; validated with clang. | **done** |
@@ -89,6 +100,21 @@ The full design and step-by-step plans live in
 
 ```sh
 harbour -GL hello.prg      # -> hello.ll, hello.o, and hello.exe
+```
+
+Hello-world example (`hello.prg`):
+
+```harbour
+function Main()
+   local cName := "world"
+   ? "hello, " + cName
+   return nil
+```
+
+```sh
+$ harbour -GL hello.prg
+$ ./hello
+hello, world
 ```
 
 `-GL` selects the `HB_LANG_LLVM` output language, alongside the existing `-GC`

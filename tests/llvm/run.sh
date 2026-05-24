@@ -351,8 +351,11 @@ ${cards}
 <footer>
  Harbour LLVM backend &mdash;
  <a href="https://github.com/FiveTechSoft/harbourllvm">github.com/FiveTechSoft/harbourllvm</a><br>
- Plan 1: IR text emitter. Plan 2: embeds libLLVM + lld. Plan 3: straight-line IR,
- removes the interpreter dispatch loop. See <code>docs/superpowers/</code>.
+ Plans 1-3 (IR emitter, embedded libLLVM + LLD, straight-line IR) + opcode
+ groups A&ndash;I (FOR loops, arrays, RDD/memvars, OOP messages, FOR EACH,
+ SWITCH, codeblocks, macros, SEQUENCE). Programs using opcodes outside the
+ A&ndash;I subset fall back whole-function to <code>hb_vmExecute</code> &mdash;
+ a permanent, intentional safety net. See <code>docs/superpowers/</code>.
 </footer>
 
 </div>
