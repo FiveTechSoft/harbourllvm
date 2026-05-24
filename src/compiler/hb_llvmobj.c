@@ -353,7 +353,7 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
          {
             snprintf( szLibArg2, sizeof( szLibArg2 ), "-l%s",
                       s_hbRuntimeLibs[ j ] );
-            argv[ argc++ ] = strdup( szLibArg2 );
+            PUSH_DUP( szLibArg2 );
          }
       }
       argv[ argc++ ] = "-lSystem";
