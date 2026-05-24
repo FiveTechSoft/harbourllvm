@@ -11,6 +11,37 @@
 #include "hb_llvmobj.h"
 #include "hb_lldshim.h"
 
+#if defined( __APPLE__ )
+
+/* Returns a pointer to a static buffer holding the macOS SDK path, or
+ * NULL on failure. Cached after first successful call. */
+static const char * hb_macos_sdk_path( void )
+{
+   static char s_sdkPath[ 4096 ];
+   static int  s_initialised = 0;
+
+   if( ! s_initialised )
+   {
+      FILE * fp = popen( "xcrun --show-sdk-path 2>/dev/null", "r" );
+      if( fp )
+      {
+         if( fgets( s_sdkPath, sizeof( s_sdkPath ), fp ) != NULL )
+         {
+            size_t n = strlen( s_sdkPath );
+            /* trim trailing newline */
+            while( n > 0 && ( s_sdkPath[ n - 1 ] == '\n' ||
+                              s_sdkPath[ n - 1 ] == '\r' ) )
+               s_sdkPath[ --n ] = '\0';
+         }
+         pclose( fp );
+      }
+      s_initialised = 1;
+   }
+   return s_sdkPath[ 0 ] ? s_sdkPath : NULL;
+}
+
+#endif /* __APPLE__ */
+
 #include "llvm-c/Core.h"
 #include "llvm-c/IRReader.h"
 #include "llvm-c/Target.h"
@@ -161,12 +192,6 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
    char *       apszAlloc[ HB_LLD_MAX_ARGS ];
    int          nAlloc = 0;
 
-   /* The bundled mingw64-rt directory is a sibling of szLibDir's parent:
-    * szLibDir = <prefix>/lib/win/mingw64
-    * mingw64-rt = <prefix>/lib/win/mingw64-rt
-    * We build it with plain string operations — no process spawning. */
-   char szRtDir[ 4096 ];
-
 #define PUSH_DUP( str )  do { \
       char * _p = strdup( str ); \
       apszAlloc[ nAlloc++ ] = _p; \
@@ -178,106 +203,172 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       PUSH_DUP( szLibArg ); \
    } while( 0 )
 
-   /* Build the bundled runtime dir path: replace the last path component
-    * of szLibDir ("mingw64") with "mingw64-rt". */
+   /* --- Build the linker argument vector (platform-specific) --- */
+
+#if defined( __MINGW32__ ) || defined( _WIN32 )
    {
-      char szTmp[ 4096 ];
-      char * p;
-      snprintf( szTmp, sizeof( szTmp ), "%s", szLibDir );
-      /* Normalise backslashes */
-      for( p = szTmp; *p; ++p )
-         if( *p == '\\' ) *p = '/';
-      /* Strip trailing slash if any */
-      p = szTmp + strlen( szTmp ) - 1;
-      while( p > szTmp && *p == '/' ) *p-- = '\0';
-      /* Find last path separator and replace the final component */
-      p = strrchr( szTmp, '/' );
-      if( p )
-         snprintf( szRtDir, sizeof( szRtDir ), "%.*s/mingw64-rt",
-                   (int)( p - szTmp ), szTmp );
-      else
-         /* Flat layout fallback: look in a sibling dir */
-         snprintf( szRtDir, sizeof( szRtDir ), "%s/../mingw64-rt", szTmp );
+      /* Two supported layouts:
+       *   - Dev tree:  szLibDir = <prefix>/lib/win/mingw64, MinGW CRT
+       *                + Win32 import libs in sibling lib/win/mingw64-rt/
+       *   - Release zip (flat): szLibDir = <prefix>/lib, everything merged
+       *                in that one dir.
+       * Detect by basename: if szLibDir ends in "/mingw64", use the
+       * "-rt" sibling; otherwise szRtDir == szLibDir (flat). */
+      char szRtDir[ 4096 ];
+      {
+         char   szTmp[ 4096 ];
+         char * p;
+         snprintf( szTmp, sizeof( szTmp ), "%s", szLibDir );
+         for( p = szTmp; *p; ++p )
+            if( *p == '\\' ) *p = '/';
+         p = szTmp + strlen( szTmp );
+         while( p > szTmp && *( p - 1 ) == '/' ) *--p = '\0';
+         p = strrchr( szTmp, '/' );
+         if( p && strcmp( p + 1, "mingw64" ) == 0 )
+            snprintf( szRtDir, sizeof( szRtDir ), "%.*s/mingw64-rt",
+                      ( int )( p - szTmp ), szTmp );
+         else
+            snprintf( szRtDir, sizeof( szRtDir ), "%s", szLibDir );
+      }
+
+      argv[ argc++ ] = "ld.lld";
+      argv[ argc++ ] = "--subsystem";
+      argv[ argc++ ] = "console";
+      argv[ argc++ ] = "-o";
+      argv[ argc++ ] = szExePath;
+
+      /* CRT startup objects — must come first, before the user object.
+       * crt2.o provides mainCRTStartup; crtbegin.o/.end.o wrap C++ ctors/dtors. */
+      {
+         char szPath[ 8192 ];
+         snprintf( szPath, sizeof( szPath ), "%s/crt2.o",     szRtDir );
+         PUSH_DUP( szPath );
+         snprintf( szPath, sizeof( szPath ), "%s/crtbegin.o", szRtDir );
+         PUSH_DUP( szPath );
+      }
+
+      /* User's compiled object */
+      argv[ argc++ ] = szObjPath;
+
+      /* Bundled GT default stub: sets GTSTD as the active GT via
+       * hb_vmSetDefaultGT("STD"), overriding the platform default (gtwin).
+       * Shipped as lib/win/mingw64-rt/hb_llvmgtstd.o — no compilation at runtime. */
+      {
+         char szPath[ 8192 ];
+         snprintf( szPath, sizeof( szPath ), "%s/hb_llvmgtstd.o", szRtDir );
+         PUSH_DUP( szPath );
+      }
+
+      /* Force-pull HB_FUN_HB_GT_STD_DEFAULT from libgtstd.a to ensure the gtstd
+       * registration code is linked in so hb_gt_Base() finds the STD driver. */
+      argv[ argc++ ] = "--undefined";
+      argv[ argc++ ] = "HB_FUN_HB_GT_STD_DEFAULT";
+
+      /* Library search paths */
+      PUSH_LDIR( szLibDir );    /* Harbour runtime archives: lib/win/mingw64    */
+      PUSH_LDIR( szRtDir );     /* bundled CRT + import libs: lib/win/mingw64-rt */
+
+      /* Harbour runtime archives — --start-group handles circular references */
+      argv[ argc++ ] = "--start-group";
+
+      for( i = 0; i < sizeof( s_hbRuntimeLibs ) / sizeof( s_hbRuntimeLibs[ 0 ] ); ++i )
+      {
+         snprintf( szLibArg, sizeof( szLibArg ), "-l%s", s_hbRuntimeLibs[ i ] );
+         PUSH_DUP( szLibArg );
+      }
+
+      argv[ argc++ ] = "--end-group";
+
+      /* Windows API import libraries */
+      for( i = 0; i < sizeof( s_sysLibs ) / sizeof( s_sysLibs[ 0 ] ); ++i )
+      {
+         snprintf( szLibArg, sizeof( szLibArg ), "-l%s", s_sysLibs[ i ] );
+         PUSH_DUP( szLibArg );
+      }
+
+      /* MinGW + GCC runtime libraries — same order GCC uses internally.
+       * All resolved from the bundled mingw64-rt directory via the -L above. */
+      argv[ argc++ ] = "-lstdc++";
+      argv[ argc++ ] = "-lmingw32";
+      argv[ argc++ ] = "-lgcc";
+      argv[ argc++ ] = "-lgcc_eh";
+      argv[ argc++ ] = "-lmingwex";
+      argv[ argc++ ] = "-lmoldname";
+      argv[ argc++ ] = "-lmsvcrt";
+
+      /* CRT end object — GCC places it after all user code and libraries */
+      {
+         char szPath[ 8192 ];
+         snprintf( szPath, sizeof( szPath ), "%s/crtend.o", szRtDir );
+         PUSH_DUP( szPath );
+      }
+
+      rc = hb_lld_link_mingw( argc, argv );
    }
 
-   /* --- Build the ld.lld argument vector --- */
-
-   argv[ argc++ ] = "ld.lld";
-   argv[ argc++ ] = "--subsystem";
-   argv[ argc++ ] = "console";
-   argv[ argc++ ] = "-o";
-   argv[ argc++ ] = szExePath;
-
-   /* CRT startup objects — must come first, before the user object.
-    * crt2.o provides mainCRTStartup; crtbegin.o/.end.o wrap C++ ctors/dtors. */
+#elif defined( __APPLE__ )
    {
-      char szPath[ 8192 ];
-      snprintf( szPath, sizeof( szPath ), "%s/crt2.o",     szRtDir );
-      PUSH_DUP( szPath );
-      snprintf( szPath, sizeof( szPath ), "%s/crtbegin.o", szRtDir );
-      PUSH_DUP( szPath );
+      const char * pszSdk = hb_macos_sdk_path();
+      char szCrt1[ 4096 ];
+      char szGtObj[ 4096 ];
+
+      if( pszSdk == NULL )
+      {
+         fprintf( stderr, "harbour -GL: xcrun --show-sdk-path failed. "
+                          "Install Xcode Command Line Tools:\n"
+                          "  xcode-select --install\n" );
+         return 1;
+      }
+
+      snprintf( szCrt1, sizeof( szCrt1 ), "%s/usr/lib/crt1.o", pszSdk );
+      /* hb_llvmgtstd.o is built next to the Harbour runtime libs by T4. */
+      snprintf( szGtObj, sizeof( szGtObj ), "%s/hb_llvmgtstd.o", szLibDir );
+
+      argv[ argc++ ] = "ld64.lld";
+      argv[ argc++ ] = "-arch";
+      argv[ argc++ ] = "x86_64";
+      argv[ argc++ ] = "-platform_version";
+      argv[ argc++ ] = "macos";
+      argv[ argc++ ] = "13.0.0";
+      argv[ argc++ ] = "13.0.0";
+      argv[ argc++ ] = "-syslibroot";
+      argv[ argc++ ] = pszSdk;
+      argv[ argc++ ] = "-o";
+      argv[ argc++ ] = szExePath;
+      argv[ argc++ ] = szCrt1;
+      argv[ argc++ ] = szObjPath;
+      argv[ argc++ ] = szGtObj;
+      argv[ argc++ ] = "-u";
+      argv[ argc++ ] = "_HB_FUN_HB_GT_STD_DEFAULT";   /* Mach-O underscore */
+
+      PUSH_LDIR( szLibDir );   /* lib/darwin/clang (Harbour runtime) */
+
+      /* No --start-group / --end-group on Mach-O — ld64 resolves
+       * forward references via multi-pass scanning automatically. */
+      {
+         int j;
+         char szLibArg2[ 64 ];
+         for( j = 0; j < ( int )( sizeof( s_hbRuntimeLibs ) /
+                                   sizeof( s_hbRuntimeLibs[ 0 ] ) ); ++j )
+         {
+            snprintf( szLibArg2, sizeof( szLibArg2 ), "-l%s",
+                      s_hbRuntimeLibs[ j ] );
+            argv[ argc++ ] = strdup( szLibArg2 );
+         }
+      }
+      argv[ argc++ ] = "-lSystem";
+      argv[ argc++ ] = "-lc++";
+
+      rc = hb_lld_link_macho( argc, argv );
    }
 
-   /* User's compiled object */
-   argv[ argc++ ] = szObjPath;
-
-   /* Bundled GT default stub: sets GTSTD as the active GT via
-    * hb_vmSetDefaultGT("STD"), overriding the platform default (gtwin).
-    * Shipped as lib/win/mingw64-rt/hb_llvmgtstd.o — no compilation at runtime. */
-   {
-      char szPath[ 8192 ];
-      snprintf( szPath, sizeof( szPath ), "%s/hb_llvmgtstd.o", szRtDir );
-      PUSH_DUP( szPath );
-   }
-
-   /* Force-pull HB_FUN_HB_GT_STD_DEFAULT from libgtstd.a to ensure the gtstd
-    * registration code is linked in so hb_gt_Base() finds the STD driver. */
-   argv[ argc++ ] = "--undefined";
-   argv[ argc++ ] = "HB_FUN_HB_GT_STD_DEFAULT";
-
-   /* Library search paths */
-   PUSH_LDIR( szLibDir );    /* Harbour runtime archives: lib/win/mingw64    */
-   PUSH_LDIR( szRtDir );     /* bundled CRT + import libs: lib/win/mingw64-rt */
-
-   /* Harbour runtime archives — --start-group handles circular references */
-   argv[ argc++ ] = "--start-group";
-
-   for( i = 0; i < sizeof( s_hbRuntimeLibs ) / sizeof( s_hbRuntimeLibs[ 0 ] ); ++i )
-   {
-      snprintf( szLibArg, sizeof( szLibArg ), "-l%s", s_hbRuntimeLibs[ i ] );
-      PUSH_DUP( szLibArg );
-   }
-
-   argv[ argc++ ] = "--end-group";
-
-   /* Windows API import libraries */
-   for( i = 0; i < sizeof( s_sysLibs ) / sizeof( s_sysLibs[ 0 ] ); ++i )
-   {
-      snprintf( szLibArg, sizeof( szLibArg ), "-l%s", s_sysLibs[ i ] );
-      PUSH_DUP( szLibArg );
-   }
-
-   /* MinGW + GCC runtime libraries — same order GCC uses internally.
-    * All resolved from the bundled mingw64-rt directory via the -L above. */
-   argv[ argc++ ] = "-lstdc++";
-   argv[ argc++ ] = "-lmingw32";
-   argv[ argc++ ] = "-lgcc";
-   argv[ argc++ ] = "-lgcc_eh";
-   argv[ argc++ ] = "-lmingwex";
-   argv[ argc++ ] = "-lmoldname";
-   argv[ argc++ ] = "-lmsvcrt";
-
-   /* CRT end object — GCC places it after all user code and libraries */
-   {
-      char szPath[ 8192 ];
-      snprintf( szPath, sizeof( szPath ), "%s/crtend.o", szRtDir );
-      PUSH_DUP( szPath );
-   }
+#else
+#  error "Plan 2 (in-process EXE) not supported on this platform yet."
+#endif
 
 #undef PUSH_LDIR
 #undef PUSH_DUP
 
-   rc = hb_lld_link_mingw( argc, argv );
    if( rc != 0 )
       fprintf( stderr, "harbour -GL: link failed (lld rc=%d)\n", rc );
 
@@ -291,15 +382,22 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
 /*
  * hb_llvmRuntimeLibDir
  *
- * Fill szBuf with the absolute path of the Harbour runtime lib directory
- * (lib/win/mingw64), derived relative to the running harbour.exe.
+ * Fill szBuf with the absolute path of the Harbour runtime lib directory,
+ * derived relative to the running harbour.exe.
  *
- * Layout:  <prefix>/bin/win/mingw64/harbour.exe
- *          <prefix>/lib/win/mingw64/   <- what we return
+ * Release-zip layout (flat):
+ *   <prefix>/bin/harbour.exe
+ *   <prefix>/lib/      <- what we return (Harbour runtime + MinGW CRT merged)
+ *
+ * Dev-tree fallback layout (Plan 2 original Windows tree):
+ *   <prefix>/bin/win/mingw64/harbour.exe
+ *   <prefix>/lib/win/mingw64/   <- alternative return
  *
  * Strategy: get the exe path via GetModuleFileNameA, normalise slashes,
- * strip the exe filename, then go up three directory components (mingw64,
- * win, bin) to reach <prefix>, then append lib/win/mingw64.
+ * strip the exe filename. Try the flat layout first (sibling lib/ next to
+ * bin/). If that lib/ doesn't exist, fall back to the dev-tree layout
+ * (walk up 3 dirs then append lib/win/mingw64). This lets the same
+ * harbour.exe run from the release zip AND from the dev build tree.
  *
  * Windows-only (Plan 2 is x86_64 Windows only).
  */
@@ -307,8 +405,10 @@ void hb_llvmRuntimeLibDir( char * szBuf, int nBufLen )
 {
 #if defined( _WIN32 ) || defined( __WIN32__ ) || defined( WIN32 )
    char   szExe[ 4096 ];
+   char   szTry[ 4096 ];
    char * p;
    int    i;
+   DWORD  attr;
 
    szBuf[ 0 ] = '\0';
 
@@ -325,10 +425,27 @@ void hb_llvmRuntimeLibDir( char * szBuf, int nBufLen )
    /* Strip trailing filename: find last '/' and terminate */
    p = strrchr( szExe, '/' );
    if( p )
-      *p = '\0';   /* szExe now holds <prefix>/bin/win/mingw64 */
+      *p = '\0';   /* szExe now holds the bin directory */
 
-   /* Walk up three directory components to reach <prefix>:
-    * 1) mingw64  2) win  3) bin */
+   /* Flat layout attempt: walk up one dir (out of bin/), append /lib. */
+   {
+      char szBin[ 4096 ];
+      snprintf( szBin, sizeof( szBin ), "%s", szExe );
+      p = strrchr( szBin, '/' );
+      if( p )
+         *p = '\0';
+      snprintf( szTry, sizeof( szTry ), "%s/lib", szBin );
+      attr = GetFileAttributesA( szTry );
+      if( attr != INVALID_FILE_ATTRIBUTES &&
+          ( attr & FILE_ATTRIBUTE_DIRECTORY ) )
+      {
+         snprintf( szBuf, ( size_t ) nBufLen, "%s", szTry );
+         return;
+      }
+   }
+
+   /* Dev-tree fallback: walk up three directory components (mingw64, win,
+    * bin) to reach <prefix>, then append lib/win/mingw64. */
    for( i = 0; i < 3; ++i )
    {
       p = strrchr( szExe, '/' );
@@ -336,14 +453,12 @@ void hb_llvmRuntimeLibDir( char * szBuf, int nBufLen )
          *p = '\0';
       else
       {
-         /* Unexpected layout — fall back to cwd */
          szBuf[ 0 ] = '.';
          szBuf[ 1 ] = '\0';
          return;
       }
    }
 
-   /* szExe is now <prefix>; append the lib sub-path */
    snprintf( szBuf, ( size_t ) nBufLen, "%s/lib/win/mingw64", szExe );
 
 #else
