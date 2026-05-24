@@ -1,6 +1,7 @@
 ROOT := ../
 
 include $(TOP)$(ROOT)config/global.mk
+include $(TOP)$(ROOT)config/llvm-paths.mk
 
 ifeq ($(HB_BUILD_PARTS),compiler)
 
@@ -9,8 +10,17 @@ ifeq ($(HB_BUILD_PARTS),compiler)
       nortl \
       pp{common,nortl} \
       compiler \
-      llvmbe{compiler} \
-      main{pp,compiler,llvmbe} \
+
+   ifeq ($(HB_HAS_LLVM),yes)
+      DIRS += \
+         llvmbe{compiler} \
+         main{pp,compiler,llvmbe} \
+
+   else
+      DIRS += \
+         main{pp,compiler} \
+
+   endif
 
 else
 
@@ -85,7 +95,11 @@ else
       HB_COMP_REF :=
       HB_COMP_RF2 := {pp}
    else
-      HB_COMP_DIR := llvmbe{compiler} main{pp,compiler,llvmbe}
+      ifeq ($(HB_HAS_LLVM),yes)
+         HB_COMP_DIR := llvmbe{compiler} main{pp,compiler,llvmbe}
+      else
+         HB_COMP_DIR := main{pp,compiler}
+      endif
       HB_COMP_REF := {main}
       HB_COMP_RF2 := {main}
    endif

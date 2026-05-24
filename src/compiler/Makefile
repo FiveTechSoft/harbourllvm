@@ -2,7 +2,7 @@ ROOT := ../../
 
 include $(TOP)$(ROOT)config/llvm-paths.mk
 CXX              := g++
-HB_USER_CFLAGS   += -I$(shell $(HB_LLVM_CONFIG) --includedir)
+HB_USER_CFLAGS   += $(HB_LLVM_CFLAGS)
 
 #YACC_FLAGS := -p hb_comp
 YACC_SOURCE := harbour.y
