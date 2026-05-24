@@ -12,6 +12,11 @@ extern "C" {
  * Returns 0 on success, non-zero on failure. */
 int hb_lld_link_mingw( int argc, const char ** argv );
 
+/* Link a Mach-O executable from the given argv. Returns 0 on success,
+ * non-zero on failure. Only meaningful when LLD was built with the
+ * macho driver, i.e. on macOS hosts. */
+extern int hb_lld_link_macho( int argc, const char ** argv );
+
 #if defined( __cplusplus )
 }
 #endif
