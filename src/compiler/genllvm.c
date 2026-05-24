@@ -440,6 +440,15 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             break;
          }
 
+         /* Group I limitation: the conditional-jump family routes the
+          * %cjp<pos> error/action check from hb_vmsh_poplogical directly to
+          * %epilogue, NOT through the SEQUENCE region dispatch. If a BREAK
+          * raised inside hb_vmsh_poplogical (e.g. via an error handler hook)
+          * occurred while inside a BEGIN SEQUENCE region, it would exit the
+          * function instead of routing to the recover block. In practice
+          * hb_vmsh_poplogical only signals type errors; BREAK is not a
+          * documented path through it, so this limitation is benign for
+          * normal use. Documented in the group I plan, Task 3 Step 4. */
          case HB_P_JUMPFALSENEAR:
          case HB_P_JUMPFALSE:
          case HB_P_JUMPFALSEFAR:
@@ -1415,9 +1424,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             hb_llvmEmitFuncName( yyc, pFunc->szName );
             fprintf( yyc, ", i32 0, i32 %lu))\n",
                      ( unsigned long ) recover_pos );
-            /* shim always returns 0; use standard dispatch (trivially falls through) */
+            /* Use pre-push depth: the shim always returns 0, no need for
+             * the new region's own dispatch IR (which would be dead code). */
             hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel,
-                                       seq_stack, seq_depth );
+                                       seq_stack, seq_depth - 1 );
             break;
          }
 
@@ -1468,8 +1478,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
             hb_llvmEmitFuncName( yyc, pFunc->szName );
             fprintf( yyc, ", i32 0, i32 %lu))\n",
                      ( unsigned long ) always_pos );
+            /* Use pre-push depth: the shim always returns 0, no need for
+             * the new region's own dispatch IR (which would be dead code). */
             hb_llvmSLEmitActionCheck( yyc, pos, szNextLabel,
-                                       seq_stack, seq_depth );
+                                       seq_stack, seq_depth - 1 );
             break;
          }
 
@@ -1483,6 +1495,10 @@ static void hb_llvmSLEmitBody( FILE * yyc, PHB_HFUNC pFunc,
                      ( unsigned long ) pos,
                      ( unsigned long ) nPCSize, ( unsigned long ) nPCSize );
             hb_llvmEmitFuncName( yyc, pFunc->szName );
+            /* hb_vmsh_alwaysbegin always returns 0 (just updates the existing
+             * envelope's recover address + folds the pending request into
+             * flags); use an unconditional branch instead of the dispatch
+             * helper. The enclosing SEQALWAYS region is still on seq_stack. */
             fprintf( yyc, ", i32 0, i32 %lu))\n"
                           "  br label %%%s\n",
                      ( unsigned long ) always_end_pos, szNextLabel );
