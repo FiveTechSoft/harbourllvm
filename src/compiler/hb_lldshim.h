@@ -17,6 +17,11 @@ int hb_lld_link_mingw( int argc, const char ** argv );
  * macho driver, i.e. on macOS hosts. */
 extern int hb_lld_link_macho( int argc, const char ** argv );
 
+/* Link an ELF executable from the given argv. Returns 0 on success,
+ * non-zero on failure. Only meaningful when LLD was built with the
+ * elf driver, i.e. on Linux/BSD hosts. */
+extern int hb_lld_link_elf( int argc, const char ** argv );
+
 #if defined( __cplusplus )
 }
 #endif

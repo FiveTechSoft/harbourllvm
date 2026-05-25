@@ -25,6 +25,22 @@ extern "C" int hb_lld_link_macho( int argc, const char ** argv )
    return ok ? 0 : 1;
 }
 
+#elif defined( __linux__ )
+
+LLD_HAS_DRIVER( elf )   /* declares lld::elf::link */
+
+extern "C" int hb_lld_link_elf( int argc, const char ** argv )
+{
+   llvm::ArrayRef< const char * > args( argv, static_cast< size_t >( argc ) );
+
+   bool ok = lld::elf::link( args,
+                             llvm::outs(),
+                             llvm::errs(),
+                             /* exitEarly  */ false,
+                             /* disableOut */ false );
+   return ok ? 0 : 1;
+}
+
 #elif defined( _WIN32 ) || defined( __MINGW32__ )
 
 LLD_HAS_DRIVER( mingw )   /* declares lld::mingw::link */

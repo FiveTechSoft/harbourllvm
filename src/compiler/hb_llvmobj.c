@@ -49,6 +49,13 @@ static const char * hb_macos_sdk_path( void )
 
 #endif /* __APPLE__ */
 
+#if defined( __linux__ )
+#include <unistd.h>          /* readlink */
+#include <sys/stat.h>        /* stat, S_ISDIR */
+#include <sys/types.h>       /* ssize_t */
+#include <stdio.h>           /* popen, pclose, fgets */
+#endif
+
 #include "llvm-c/Core.h"
 #include "llvm-c/IRReader.h"
 #include "llvm-c/Target.h"
@@ -424,6 +431,137 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       rc = hb_lld_link_macho( argc, argv );
    }
 
+#elif defined( __linux__ )
+   {
+      /* Linux x86_64 ELF link.
+       *
+       * Critical pieces:
+       *  - crt1.o / crti.o / crtn.o: C runtime startup objects from glibc
+       *    (provide _start, _init/_fini frame).
+       *  - crtbegin.o / crtend.o: GCC's C++ ctor/dtor frame, found via
+       *    `gcc -print-file-name=`. Cached lazily.
+       *  - Dynamic linker: /lib64/ld-linux-x86-64.so.2 (standard Debian/Ubuntu
+       *    + glibc location). Required for non-static binaries.
+       *  - hb_llvmgtstd.o: bundled GT default stub, registers gtstd as
+       *    active GT (same idea as Windows / macOS).
+       *  - -lc -lm -lpthread -ldl -lncursesw -lz -lrt: system deps for
+       *    Harbour runtime (terminal GT pulls ncursesw, hbzlib uses -lz). */
+      const char * pszLibcCrtDir = "/usr/lib/x86_64-linux-gnu";
+      char szCrt1[ 4096 ];
+      char szCrti[ 4096 ];
+      char szCrtn[ 4096 ];
+      char szCrtbegin[ 4096 ];
+      char szCrtend[ 4096 ];
+      char szGtObj[ 4096 ];
+
+      /* Locate GCC's crtbegin.o / crtend.o once via gcc -print-file-name.
+       * GCC places them in a versioned dir like /usr/lib/gcc/x86_64-linux-gnu/13/.
+       * Cached for the process lifetime. */
+      static char s_szGccLibDir[ 4096 ] = { 0 };
+      if( s_szGccLibDir[ 0 ] == '\0' )
+      {
+         FILE * fp = popen( "gcc -print-libgcc-file-name 2>/dev/null", "r" );
+         if( fp )
+         {
+            char szBuf[ 4096 ];
+            if( fgets( szBuf, sizeof( szBuf ), fp ) )
+            {
+               char * p;
+               size_t n = strlen( szBuf );
+               while( n > 0 && ( szBuf[ n - 1 ] == '\n' || szBuf[ n - 1 ] == '\r' ) )
+                  szBuf[ --n ] = '\0';
+               /* szBuf = .../gcc/x86_64-linux-gnu/13/libgcc.a — strip filename */
+               p = strrchr( szBuf, '/' );
+               if( p )
+                  *p = '\0';
+               snprintf( s_szGccLibDir, sizeof( s_szGccLibDir ), "%s", szBuf );
+            }
+            pclose( fp );
+         }
+         if( s_szGccLibDir[ 0 ] == '\0' )
+         {
+            fprintf( stderr, "harbour -GL: gcc -print-libgcc-file-name failed. "
+                             "Install gcc:\n  sudo apt-get install gcc\n" );
+            return 1;
+         }
+      }
+
+      snprintf( szCrt1,     sizeof( szCrt1 ),     "%s/crt1.o",     pszLibcCrtDir );
+      snprintf( szCrti,     sizeof( szCrti ),     "%s/crti.o",     pszLibcCrtDir );
+      snprintf( szCrtn,     sizeof( szCrtn ),     "%s/crtn.o",     pszLibcCrtDir );
+      snprintf( szCrtbegin, sizeof( szCrtbegin ), "%s/crtbegin.o", s_szGccLibDir );
+      snprintf( szCrtend,   sizeof( szCrtend ),   "%s/crtend.o",   s_szGccLibDir );
+      snprintf( szGtObj,    sizeof( szGtObj ),    "%s/hb_llvmgtstd.o", szLibDir );
+
+      argv[ argc++ ] = "ld.lld";
+      argv[ argc++ ] = "-m";
+      argv[ argc++ ] = "elf_x86_64";
+      argv[ argc++ ] = "-dynamic-linker";
+      argv[ argc++ ] = "/lib64/ld-linux-x86-64.so.2";
+      argv[ argc++ ] = "-o";
+      argv[ argc++ ] = szExePath;
+
+      /* CRT startup objects */
+      PUSH_DUP( szCrt1 );
+      PUSH_DUP( szCrti );
+      PUSH_DUP( szCrtbegin );
+
+      /* User's compiled object + bundled GT default stub */
+      argv[ argc++ ] = szObjPath;
+      PUSH_DUP( szGtObj );
+
+      argv[ argc++ ] = "-u";
+      argv[ argc++ ] = "HB_FUN_HB_GT_STD_DEFAULT";   /* ELF: no underscore prefix */
+
+      PUSH_LDIR( szLibDir );          /* Harbour runtime archives */
+      PUSH_LDIR( pszLibcCrtDir );     /* glibc + ld-linux */
+      PUSH_LDIR( s_szGccLibDir );     /* libgcc.a + crt{begin,end}.o */
+
+      /* User-supplied library search paths (-L<dir> CLI option) */
+      {
+         int j;
+         for( j = 0; j < nUserLibDirCount; ++j )
+            PUSH_LDIR( aszUserLibDirs[ j ] );
+      }
+
+      /* Harbour runtime archives — wrap in --start-group for circular refs */
+      argv[ argc++ ] = "--start-group";
+      for( i = 0; i < sizeof( s_hbRuntimeLibs ) / sizeof( s_hbRuntimeLibs[ 0 ] ); ++i )
+      {
+         snprintf( szLibArg, sizeof( szLibArg ), "-l%s", s_hbRuntimeLibs[ i ] );
+         PUSH_DUP( szLibArg );
+      }
+      argv[ argc++ ] = "--end-group";
+
+      /* User-supplied libraries (-uselib=<name>) */
+      {
+         int j;
+         for( j = 0; j < nUserLibNameCount; ++j )
+         {
+            snprintf( szLibArg, sizeof( szLibArg ), "-l%s", aszUserLibNames[ j ] );
+            PUSH_DUP( szLibArg );
+         }
+      }
+
+      /* System libraries — order matters in classic ELF link, but
+       * group/repeat as needed for forward references. */
+      argv[ argc++ ] = "-lgcc";
+      argv[ argc++ ] = "-lgcc_eh";
+      argv[ argc++ ] = "-lc";
+      argv[ argc++ ] = "-lm";
+      argv[ argc++ ] = "-lpthread";
+      argv[ argc++ ] = "-ldl";
+      argv[ argc++ ] = "-lncursesw";
+      argv[ argc++ ] = "-lz";
+      argv[ argc++ ] = "-lrt";
+
+      /* CRT end objects */
+      PUSH_DUP( szCrtend );
+      PUSH_DUP( szCrtn );
+
+      rc = hb_lld_link_elf( argc, argv );
+   }
+
 #else
 #  error "Plan 2 (in-process EXE) not supported on this platform yet."
 #endif
@@ -587,8 +725,70 @@ void hb_llvmRuntimeLibDir( char * szBuf, int nBufLen )
 
    snprintf( szBuf, ( size_t ) nBufLen, "%s/lib/darwin/clang", szExe );
 
+#elif defined( __linux__ )
+   /* Linux: locate harbour exe via /proc/self/exe symlink, then mirror
+    * the Windows/macOS lookup strategy.
+    *
+    * Release-tarball layout:    <prefix>/bin/harbour  -> <prefix>/lib
+    * Dev-tree layout:           <prefix>/bin/linux/gcc/harbour
+    *                            -> <prefix>/lib/linux/gcc/
+    */
+   char     szExe[ 4096 ];
+   char     szTry[ 4096 ];
+   char *   p;
+   int      i;
+   ssize_t  nLen;
+   struct stat st;
+
+   szBuf[ 0 ] = '\0';
+
+   nLen = readlink( "/proc/self/exe", szExe, sizeof( szExe ) - 1 );
+   if( nLen <= 0 )
+   {
+      fprintf( stderr, "harbour -GL: readlink /proc/self/exe failed\n" );
+      return;
+   }
+   szExe[ nLen ] = '\0';
+
+   /* Strip filename: szExe -> directory containing harbour */
+   p = strrchr( szExe, '/' );
+   if( p )
+      *p = '\0';
+
+   /* Flat layout attempt: walk up one dir, append /lib. */
+   {
+      char szBin[ 4096 ];
+      snprintf( szBin, sizeof( szBin ), "%s", szExe );
+      p = strrchr( szBin, '/' );
+      if( p )
+         *p = '\0';
+      snprintf( szTry, sizeof( szTry ), "%s/lib", szBin );
+      if( stat( szTry, &st ) == 0 && S_ISDIR( st.st_mode ) )
+      {
+         snprintf( szBuf, ( size_t ) nBufLen, "%s", szTry );
+         return;
+      }
+   }
+
+   /* Dev-tree fallback: walk up three dirs (gcc, linux, bin) -> <prefix>,
+    * then append lib/linux/gcc. */
+   for( i = 0; i < 3; ++i )
+   {
+      p = strrchr( szExe, '/' );
+      if( p )
+         *p = '\0';
+      else
+      {
+         szBuf[ 0 ] = '.';
+         szBuf[ 1 ] = '\0';
+         return;
+      }
+   }
+
+   snprintf( szBuf, ( size_t ) nBufLen, "%s/lib/linux/gcc", szExe );
+
 #else
-   /* Non-Windows/non-macOS stub — Linux uses the system linker path */
+   /* Unsupported platform */
    ( void ) nBufLen;
    szBuf[ 0 ] = '\0';
 #endif

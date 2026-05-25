@@ -26,7 +26,18 @@ ifeq ($(HB_HAS_LLVM),yes)
 
 HB_LLVM_LIBDIR := -L$(shell $(HB_LLVM_CONFIG) --libdir)
 
-ifeq ($(HB_PLATFORM),darwin)
+ifeq ($(HB_PLATFORM),linux)
+# Linux x86_64 (ELF / ld.lld). Link the system LLVM 18 + LLD static libs.
+# --whole-archive on libhbllvm.a drags in the __attribute__((constructor))
+# that registers the LLVM back-end dispatch table.
+# libstdc++/libgcc are linked dynamically (system default) — same approach as
+# the unmodified Harbour build, keeping the harbour binary small (~120 MB
+# vs ~150 MB with -static-libstdc++).
+HB_LLVM_LIBS    := -llldELF -llldCommon
+HB_LLVM_LIBS    += $(shell $(HB_LLVM_CONFIG) --libs all)
+HB_LLVM_SYSLIBS := $(shell $(HB_LLVM_CONFIG) --system-libs) -lstdc++
+LD_RULE = $(LD) $(LDFLAGS) $(HB_LDFLAGS) $(HB_USER_LDFLAGS) $(LD_OUT)$(subst /,$(DIRSEP),$(BIN_DIR)/$@) $(^F) $(HB_LLVM_LIBDIR) -Wl,--start-group -Wl,--whole-archive -lhbllvm -Wl,--no-whole-archive $(LDLIBS) $(HB_LLVM_LIBS) -Wl,--end-group $(HB_LLVM_SYSLIBS) $(LDSTRIP)
+else ifeq ($(HB_PLATFORM),darwin)
 # macOS (Mach-O / ld64): use MachO + Core LLD flavours; link against libc++.
 # ld64 has no --whole-archive equivalent — use -u _hb_llvmBackendRegister to
 # force-pull the __attribute__((constructor)) from libhbllvm.a that registers
