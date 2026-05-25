@@ -31,7 +31,7 @@ ifeq ($(HB_PLATFORM),darwin)
 # ld64 has no --whole-archive equivalent — use -u _hb_llvmBackendRegister to
 # force-pull the __attribute__((constructor)) from libhbllvm.a that registers
 # the LLVM back-end dispatch table at startup.
-HB_LLVM_LIBS    := -llldMachO -llldCommon -llldCore
+HB_LLVM_LIBS    := -llldMachO -llldCommon
 HB_LLVM_LIBS    += $(shell $(HB_LLVM_CONFIG) --libs all)
 HB_LLVM_SYSLIBS := -lc++ $(shell $(HB_LLVM_CONFIG) --system-libs)
 LD_RULE = $(LD) $(LDFLAGS) $(HB_LDFLAGS) $(HB_USER_LDFLAGS) $(LD_OUT)$(subst /,$(DIRSEP),$(BIN_DIR)/$@) $(^F) $(HB_LLVM_LIBDIR) -u _hb_llvmBackendRegister -lhbllvm $(LDLIBS) $(HB_LLVM_LIBS) $(HB_LLVM_SYSLIBS) $(LDSTRIP)
