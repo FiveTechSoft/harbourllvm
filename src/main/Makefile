@@ -33,12 +33,19 @@ ifeq ($(HB_PLATFORM),darwin)
 # the LLVM back-end dispatch table at startup.
 HB_LLVM_LIBS    := -llldMachO -llldCommon
 HB_LLVM_LIBS    += $(shell $(HB_LLVM_CONFIG) --libs all)
-# Use the LLVM SDK's libc++/libc++abi (matches the ABI the LLVM static libs
-# were built against). Apple's system libc++ headers in Xcode CLT 14 don't
-# match LLVM 19. -rpath makes the produced binary find libc++.1.dylib at
-# runtime in the SDK install (acceptable for dev; portable distribution
-# would copy these dylibs next to harbour or use @loader_path).
-HB_LLVM_SYSLIBS := -L$(HB_LLVM_PREFIX)/lib -lc++ -lc++abi -Wl,-rpath,$(HB_LLVM_PREFIX)/lib $(shell $(HB_LLVM_CONFIG) --system-libs)
+# Statically link the LLVM SDK's libc++/libc++abi/libunwind. The dylib variant
+# fails at startup: dyld pulls /usr/lib/libc++abi.dylib transitively via
+# libSystem.B.dylib BEFORE @rpath/libc++.1.dylib loads from the SDK, producing
+# an ABI mix (SDK libc++ inline definitions vs. system libc++abi vtables) that
+# crashes in DoIOSInit::imbue() with rip=0 (NULL virtual dispatch through
+# std::__1::collate<char>'s vtable). Static linking sidesteps the conflict
+# entirely — harbour becomes self-contained and has no @rpath dependency.
+# -nostdlib++ suppresses clang's auto-injected -lc++.
+HB_LLVM_SYSLIBS := -nostdlib++ \
+    $(HB_LLVM_PREFIX)/lib/libc++.a \
+    $(HB_LLVM_PREFIX)/lib/libc++abi.a \
+    $(HB_LLVM_PREFIX)/lib/libunwind.a \
+    $(shell $(HB_LLVM_CONFIG) --system-libs)
 # Use the LLVM SDK's bundled ld64.lld via -fuse-ld=lld + -B. The system
 # /usr/bin/ld on macOS hosts with older Xcode CLT (14.x) can't parse
 # LLVM 19 bitcode in libLLVM*.a archives ("Unknown attribute kind (86)").
