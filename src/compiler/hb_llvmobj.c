@@ -155,6 +155,22 @@ int hb_llvmEmitObject( const char * szLLPath, const char * szObjPath )
  * resolve HB_FUN_HB_GT_WIN (a deliberate Harbour force-link mechanism).
  * The bundled hb_llvmgtstd.o sets gtstd as the active GT at runtime via
  * hb_vmSetDefaultGT("STD"), overriding the Windows default (gtwin). */
+#if defined( __APPLE__ )
+/* macOS runtime archive list. Differences vs. Windows:
+ *  - No gtwin/gtwvt/gtgui (Win32 console + WVG terminal not built on macOS).
+ *  - gttrm replaces them as the terminal GT (escape-sequence driver).
+ *  - No hbmainstd: macOS uses hb_llvmgtstd.o (force-link via -u flag in
+ *    linkExe) which calls hb_vmSetDefaultGT("STD") and provides main(). */
+static const char * const s_hbRuntimeLibs[] = {
+   "hbextern", "hbdebug", "hbvm", "hbrtl", "hblang", "hbcpage",
+   "gtcgi", "gtpca", "gtstd", "gttrm",
+   "hbrdd", "hbuddall", "hbusrrdd",
+   "rddntx", "rddcdx", "rddnsx", "rddfpt",
+   "hbrdd", "hbhsx", "hbsix",
+   "hbmacro", "hbcplr", "hbpp", "hbcommon",
+   "hbpcre", "hbzlib"
+};
+#else
 static const char * const s_hbRuntimeLibs[] = {
    "hbextern", "hbdebug", "hbvm", "hbrtl", "hblang", "hbcpage",
    "gtcgi", "gtpca", "gtstd", "gtwin", "gtwvt", "gtgui",
@@ -164,6 +180,7 @@ static const char * const s_hbRuntimeLibs[] = {
    "hbmacro", "hbcplr", "hbpp", "hbcommon", "hbmainstd",
    "hbpcre", "hbzlib"
 };
+#endif
 
 /* Windows API import libraries the Harbour runtime depends on.
  * Derived from: hbmk2 -trace link command. */
