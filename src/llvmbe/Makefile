@@ -5,6 +5,12 @@ CXX            := g++
 HB_USER_CFLAGS += $(HB_LLVM_CFLAGS)
 HB_USER_CFLAGS += -I$(TOP)$(ROOT)src/compiler
 
+# LLVM 19 headers use C++17 features (std::optional, trailing return).
+# macOS clang from Xcode CLT defaults to gnu++98; force C++17 so the
+# wrapper .cpp files compile. Universal — Windows MinGW gcc accepts -std
+# unconditionally too.
+HB_USER_CFLAGS += -std=c++17
+
 # Thin wrapper sources that #include the real files from src/compiler/.
 # This keeps the LLVM+LLD objects out of libhbcplr.a so that hbrun and
 # other tools linking libhbcplr.a do not need to link LLVM+LLD.
