@@ -2080,11 +2080,27 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
    }
 
    /* -----------------------------------------------------------------------
-    * @llvm.global_ctors — runs @hb_vm_SymbolInit at load time.
+    * Register @hb_vm_SymbolInit to run at load time.
+    *
+    * On Linux/ELF we drop the @llvm.global_ctors detour and emit a direct
+    * pointer in section ".init_array" — this bypasses LLVM's per-target
+    * default (which on some toolchains lowers global_ctors to legacy
+    * .ctors that glibc startup ignores), and pins the section glibc
+    * always reads. The "appending" attribute lets the linker merge our
+    * entry with crtbegin.o/CRT-provided ones.
+    *
+    * On Windows/macOS @llvm.global_ctors works correctly out of the box
+    * (COFF .CRT$XCU / Mach-O __mod_init_func), so keep that path.
     * --------------------------------------------------------------------- */
+#if defined( __linux__ )
+   fprintf( yyc,
+            "@__hb_init_ptr = appending global [1 x void()*]\n"
+            "  [void()* @hb_vm_SymbolInit], section \".init_array\", align 8\n" );
+#else
    fprintf( yyc,
             "@llvm.global_ctors = appending global [1 x { i32, void()*, i8* }]\n"
             "  [ { i32, void()*, i8* } { i32 65535, void()* @hb_vm_SymbolInit, i8* null } ]\n" );
+#endif
 
    fclose( yyc );
 
