@@ -34,7 +34,13 @@ ifeq ($(HB_PLATFORM),darwin)
 HB_LLVM_LIBS    := -llldMachO -llldCommon
 HB_LLVM_LIBS    += $(shell $(HB_LLVM_CONFIG) --libs all)
 HB_LLVM_SYSLIBS := -lc++ $(shell $(HB_LLVM_CONFIG) --system-libs)
-LD_RULE = $(LD) $(LDFLAGS) $(HB_LDFLAGS) $(HB_USER_LDFLAGS) $(LD_OUT)$(subst /,$(DIRSEP),$(BIN_DIR)/$@) $(^F) $(HB_LLVM_LIBDIR) -u _hb_llvmBackendInit -lhbllvm $(LDLIBS) $(HB_LLVM_LIBS) $(HB_LLVM_SYSLIBS) $(LDSTRIP)
+# Use the LLVM SDK's bundled ld64.lld via -fuse-ld=lld + -B. The system
+# /usr/bin/ld on macOS hosts with older Xcode CLT (14.x) can't parse
+# LLVM 19 bitcode in libLLVM*.a archives ("Unknown attribute kind (86)").
+# The SDK ships its own ld64.lld in $(HB_LLVM_PREFIX)/bin which understands
+# its own bitcode format. -B passes that dir to clang for linker lookup.
+HB_LLVM_LD_DARWIN := -fuse-ld=lld -B$(HB_LLVM_PREFIX)/bin
+LD_RULE = $(LD) $(LDFLAGS) $(HB_LDFLAGS) $(HB_USER_LDFLAGS) $(HB_LLVM_LD_DARWIN) $(LD_OUT)$(subst /,$(DIRSEP),$(BIN_DIR)/$@) $(^F) $(HB_LLVM_LIBDIR) -u _hb_llvmBackendInit -lhbllvm $(LDLIBS) $(HB_LLVM_LIBS) $(HB_LLVM_SYSLIBS) $(LDSTRIP)
 else
 # Windows MinGW path (unchanged):
 # Standalone harbour.exe: statically link the MinGW C/C++ runtime +
