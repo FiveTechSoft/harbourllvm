@@ -13,9 +13,13 @@ int hb_llvmEmitObject( const char * szLLPath, const char * szObjPath );
 
 /* Link szObjPath with the Harbour runtime archives found under szLibDir into
  * the executable szExePath, using the embedded LLD driver.
+ * aszUserLibDirs/nUserLibDirCount: extra -L<dir> entries from -L<dir> CLI option.
+ * aszUserLibNames/nUserLibNameCount: extra -l<name> entries from -uselib= CLI option.
  * Returns 0 on success, non-zero on failure. */
 int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
-                    const char * szExePath );
+                    const char * szExePath,
+                    const char * const * aszUserLibDirs, int nUserLibDirCount,
+                    const char * const * aszUserLibNames, int nUserLibNameCount );
 
 /* Fill szBuf with the absolute path of the Harbour runtime lib directory
  * (lib/win/mingw64), resolved relative to the running harbour.exe.
@@ -34,7 +38,9 @@ void hb_llvmRuntimeLibDir( char * szBuf, int nBufLen );
  * function is absent (non-LLVM build) and the compiler emits only the .ll.
  */
 typedef int  (*HB_LLVM_EMIT_FN)( const char *, const char * );
-typedef int  (*HB_LLVM_LINK_FN)( const char *, const char *, const char * );
+typedef int  (*HB_LLVM_LINK_FN)( const char *, const char *, const char *,
+                                  const char * const *, int,
+                                  const char * const *, int );
 typedef void (*HB_LLVM_RTDIR_FN)( char *, int );
 
 typedef struct _HB_LLVM_BACKEND

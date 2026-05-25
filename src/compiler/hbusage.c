@@ -76,6 +76,7 @@ void hb_compPrintUsage( HB_COMP_DECL, const char * szSelf )
       "\n          -j[<file>]       generate i18n gettext file (.pot)",
       "\n          -k               compilation mode (type -k? for more data)",
       "\n          -l               suppress line number information",
+      "\n          -L<dir>          (-gl only) add <dir> to linker library search path",
       "\n          -m               compile module only",
       "\n          -n[<type>]       no implicit starting procedure",
       "\n                           <type>: 0=no implicit starting procedure",
@@ -95,6 +96,8 @@ void hb_compPrintUsage( HB_COMP_DECL, const char * szSelf )
       "\n          -u[<file>]       use command def set in <file> (or none)",
       "\n          -u+<file>        add command def set from <file>",
       "\n          -undef:<id>      #undef <id>",
+      "\n          -uselib=<name>   (-gl only) link against <name> (repeatable,",
+      "\n                           comma-separated); e.g. -uselib=rddads,ace32",
       "\n          -v               variables are assumed M->",
       "\n          -w[<level>]      set warning level number (0..3, default 1)",
 #ifdef YYDEBUG

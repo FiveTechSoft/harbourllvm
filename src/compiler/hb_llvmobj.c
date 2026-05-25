@@ -178,13 +178,15 @@ static const char * const s_sysLibs[] = {
  *             + runtime libs + sys libs
  *             + mingwex libgcc libgcc_eh libmingw32 libmingwex libmoldname
  *               libmsvcrt libstdc++
- * Budget with margin = 40 + runtimeLibs + sysLibs */
-#define HB_LLD_MAX_ARGS  ( 40 + \
+ * Budget with margin = 40 + runtimeLibs + sysLibs + 128 for user libs */
+#define HB_LLD_MAX_ARGS  ( 40 + 128 + \
    ( sizeof( s_hbRuntimeLibs ) / sizeof( s_hbRuntimeLibs[ 0 ] ) ) + \
    ( sizeof( s_sysLibs )       / sizeof( s_sysLibs[ 0 ] ) ) )
 
 int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
-                    const char * szExePath )
+                    const char * szExePath,
+                    const char * const * aszUserLibDirs, int nUserLibDirCount,
+                    const char * const * aszUserLibNames, int nUserLibNameCount )
 {
    const char * argv[ HB_LLD_MAX_ARGS ];
    char         szLibArg[ 4096 ];
@@ -272,6 +274,13 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       PUSH_LDIR( szLibDir );    /* Harbour runtime archives: lib/win/mingw64    */
       PUSH_LDIR( szRtDir );     /* bundled CRT + import libs: lib/win/mingw64-rt */
 
+      /* User-supplied library search paths (-L<dir> CLI option) */
+      {
+         int j;
+         for( j = 0; j < nUserLibDirCount; ++j )
+            PUSH_LDIR( aszUserLibDirs[ j ] );
+      }
+
       /* Harbour runtime archives — --start-group handles circular references */
       argv[ argc++ ] = "--start-group";
 
@@ -282,6 +291,17 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       }
 
       argv[ argc++ ] = "--end-group";
+
+      /* User-supplied libraries (-uselib=<name> CLI option) — after runtime
+       * libs so that symbol resolution lets user libs depend on the runtime. */
+      {
+         int j;
+         for( j = 0; j < nUserLibNameCount; ++j )
+         {
+            snprintf( szLibArg, sizeof( szLibArg ), "-l%s", aszUserLibNames[ j ] );
+            PUSH_DUP( szLibArg );
+         }
+      }
 
       /* Windows API import libraries */
       for( i = 0; i < sizeof( s_sysLibs ) / sizeof( s_sysLibs[ 0 ] ); ++i )
@@ -347,6 +367,13 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
 
       PUSH_LDIR( szLibDir );   /* lib/darwin/clang (Harbour runtime) */
 
+      /* User-supplied library search paths (-L<dir> CLI option) */
+      {
+         int j;
+         for( j = 0; j < nUserLibDirCount; ++j )
+            PUSH_LDIR( aszUserLibDirs[ j ] );
+      }
+
       /* No --start-group / --end-group on Mach-O — ld64 resolves
        * forward references via multi-pass scanning automatically. */
       {
@@ -360,6 +387,17 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
             PUSH_DUP( szLibArg2 );
          }
       }
+
+      /* User-supplied libraries (-uselib=<name> CLI option) */
+      {
+         int j;
+         for( j = 0; j < nUserLibNameCount; ++j )
+         {
+            snprintf( szLibArg, sizeof( szLibArg ), "-l%s", aszUserLibNames[ j ] );
+            PUSH_DUP( szLibArg );
+         }
+      }
+
       argv[ argc++ ] = "-lSystem";
       argv[ argc++ ] = "-lc++";
 

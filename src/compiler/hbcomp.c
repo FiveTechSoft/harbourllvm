@@ -361,5 +361,14 @@ void hb_comp_free( PHB_COMP pComp )
    if( pComp->pI18nFileName )
       hb_xfree( pComp->pI18nFileName );
 
+   /* Free LLVM user lib passthrough strings (-L<dir> and -uselib=<name>) */
+   {
+      int j;
+      for( j = 0; j < pComp->iLLVMUserLibDirCount; ++j )
+         hb_xfree( ( void * ) pComp->szLLVMUserLibDirs[ j ] );
+      for( j = 0; j < pComp->iLLVMUserLibNameCount; ++j )
+         hb_xfree( ( void * ) pComp->szLLVMUserLibNames[ j ] );
+   }
+
    hb_xfree( pComp );
 }

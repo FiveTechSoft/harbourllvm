@@ -851,6 +851,13 @@ typedef struct _HB_COMP
    HB_BOOL           fNoArchDefs;         /* do not define architecture dependent macros: __PLATFORM__*, __ARCH??BIT__, __*_ENDIAN__ */
    HB_BOOL           fMeaningful;         /* do not generate warnings about meaningless expression usage */
    HB_BOOL           fINCLUDE;            /* use INCLUDE envvar as header path (default) */
+
+   /* LLVM back-end user lib passthrough (-L<dir> and -uselib=<name>) */
+#define HB_LLVM_USER_LIB_MAX  32
+   const char *      szLLVMUserLibDirs[ HB_LLVM_USER_LIB_MAX ]; /* -L<dir> */
+   int               iLLVMUserLibDirCount;
+   const char *      szLLVMUserLibNames[ HB_LLVM_USER_LIB_MAX ]; /* -uselib=<name> */
+   int               iLLVMUserLibNameCount;
 } HB_COMP, * PHB_COMP;
 
 typedef struct

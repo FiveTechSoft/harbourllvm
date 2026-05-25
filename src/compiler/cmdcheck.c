@@ -609,11 +609,32 @@ static const char * hb_compChkParseSwitch( HB_COMP_DECL, const char * szSwitch,
             ++szSwPtr;
             if( *szSwPtr == '-' )
             {
+               /* -l- : re-enable line numbers */
                HB_COMP_PARAM->fLineNumbers = HB_TRUE;
                ++szSwPtr;
             }
-            else
+            else if( *szSwPtr == '\0' || *szSwPtr == ' ' || HB_ISOPTSEP( *szSwPtr ) )
+            {
+               /* bare -l : suppress line numbers */
                HB_COMP_PARAM->fLineNumbers = HB_FALSE;
+            }
+            else
+            {
+               /* -L<dir> : user library search path for -GL linker */
+               HB_SIZE nDirLen = hb_compChkOptionLen( szSwPtr, fEnv );
+               if( HB_COMP_PARAM->iLLVMUserLibDirCount < HB_LLVM_USER_LIB_MAX )
+               {
+                  HB_COMP_PARAM->szLLVMUserLibDirs[
+                     HB_COMP_PARAM->iLLVMUserLibDirCount++ ] =
+                        hb_strndup( szSwPtr, nDirLen );
+               }
+               else
+               {
+                  hb_compGenError( HB_COMP_PARAM, hb_comp_szErrors, 'F',
+                                   HB_COMP_ERR_BADPARAM, "-L (too many entries)", NULL );
+               }
+               szSwPtr += nDirLen;
+            }
             break;
 
          case 'M':
@@ -754,7 +775,41 @@ static const char * hb_compChkParseSwitch( HB_COMP_DECL, const char * szSwitch,
             break;
 
          case 'U':
-            if( hb_strnicmp( szSwPtr, "UNDEF:", 6 ) == 0 )
+            if( hb_strnicmp( szSwPtr, "USELIB=", 7 ) == 0 )
+            {
+               /* -uselib=name[,name,...] : user library names for -GL linker */
+               const char * pNames = szSwPtr + 7;
+               HB_SIZE nTotal = hb_compChkOptionLen( pNames, fEnv );
+               const char * pEnd = pNames + nTotal;
+               const char * pCur = pNames;
+
+               while( pCur < pEnd )
+               {
+                  const char * pComma = pCur;
+                  while( pComma < pEnd && *pComma != ',' )
+                     ++pComma;
+                  if( pComma > pCur )
+                  {
+                     if( HB_COMP_PARAM->iLLVMUserLibNameCount < HB_LLVM_USER_LIB_MAX )
+                     {
+                        HB_COMP_PARAM->szLLVMUserLibNames[
+                           HB_COMP_PARAM->iLLVMUserLibNameCount++ ] =
+                              hb_strndup( pCur, pComma - pCur );
+                     }
+                     else
+                     {
+                        hb_compGenError( HB_COMP_PARAM, hb_comp_szErrors, 'F',
+                                         HB_COMP_ERR_BADPARAM,
+                                         "-uselib (too many entries)", NULL );
+                        break;
+                     }
+                  }
+                  pCur = ( pComma < pEnd ) ? pComma + 1 : pEnd;
+               }
+               szSwPtr = pEnd;
+               break;
+            }
+            else if( hb_strnicmp( szSwPtr, "UNDEF:", 6 ) == 0 )
             {
                if( hb_strnicmp( szSwPtr + 6, ".ARCH.", 6 ) == 0 )
                {
