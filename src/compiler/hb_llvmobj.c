@@ -13,6 +13,10 @@
 
 #if defined( __APPLE__ )
 
+#include <stdio.h>     /* popen, pclose, fgets, FILE */
+#include <stdlib.h>    /* NULL */
+#include <string.h>    /* strlen */
+
 /* Returns a pointer to a static buffer holding the macOS SDK path, or
  * NULL on failure. Cached after first successful call. */
 static const char * hb_macos_sdk_path( void )
