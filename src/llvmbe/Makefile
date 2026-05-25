@@ -24,3 +24,21 @@ endif
 LIBNAME := hbllvm
 
 include $(TOP)$(ROOT)config/lib.mk
+
+# macOS: compile hb_llvmgtstd.c -> lib/darwin/clang/hb_llvmgtstd.o (Mach-O).
+# The output lands next to the Harbour runtime archives so hb_llvmobj.c can
+# find it at link time via szLibDir (lib/darwin/clang/).
+# Guard: only when HB_HAS_LLVM=yes (LLVM SDK is present) on a darwin host.
+ifeq ($(HB_PLATFORM),darwin)
+ifeq ($(HB_HAS_LLVM),yes)
+
+HB_LLVMGT_OBJ := $(TOP)$(ROOT)lib/darwin/clang/hb_llvmgtstd.o
+HB_LLVMGT_SRC := $(TOP)$(ROOT)src/llvmbe/runtime/hb_llvmgtstd.c
+
+first:: $(HB_LLVMGT_OBJ)
+
+$(HB_LLVMGT_OBJ): $(HB_LLVMGT_SRC)
+	$(CC) -c -O2 -fno-common -I$(TOP)$(ROOT)include -o $@ $<
+
+endif
+endif
