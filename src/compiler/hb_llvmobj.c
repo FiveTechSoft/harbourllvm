@@ -13,9 +13,12 @@
 
 #if defined( __APPLE__ )
 
-#include <stdio.h>     /* popen, pclose, fgets, FILE */
-#include <stdlib.h>    /* NULL */
-#include <string.h>    /* strlen */
+#include <stdio.h>          /* popen, pclose, fgets, FILE */
+#include <stdlib.h>         /* NULL */
+#include <string.h>         /* strlen */
+#include <stdint.h>         /* uint32_t */
+#include <sys/stat.h>       /* stat, S_ISDIR */
+#include <mach-o/dyld.h>    /* _NSGetExecutablePath */
 
 /* Returns a pointer to a static buffer holding the macOS SDK path, or
  * NULL on failure. Cached after first successful call. */
@@ -503,8 +506,72 @@ void hb_llvmRuntimeLibDir( char * szBuf, int nBufLen )
 
    snprintf( szBuf, ( size_t ) nBufLen, "%s/lib/win/mingw64", szExe );
 
+#elif defined( __APPLE__ )
+   /* macOS: locate harbour executable via _NSGetExecutablePath, then mirror
+    * the Windows lookup strategy.
+    *
+    * Release-tarball layout (flat):
+    *   <prefix>/bin/harbour
+    *   <prefix>/lib/      <- returned (Harbour runtime archives)
+    *
+    * Dev-tree fallback (Plan 2-macOS):
+    *   <prefix>/bin/darwin/clang/harbour
+    *   <prefix>/lib/darwin/clang/
+    */
+   char     szExe[ 4096 ];
+   char     szTry[ 4096 ];
+   char *   p;
+   int      i;
+   uint32_t nLen = sizeof( szExe );
+   struct stat st;
+
+   szBuf[ 0 ] = '\0';
+
+   if( _NSGetExecutablePath( szExe, &nLen ) != 0 )
+   {
+      fprintf( stderr, "harbour -GL: _NSGetExecutablePath failed (buf too small)\n" );
+      return;
+   }
+
+   /* Strip filename: szExe -> directory containing harbour */
+   p = strrchr( szExe, '/' );
+   if( p )
+      *p = '\0';
+
+   /* Flat layout attempt: walk up one dir (out of bin/), append /lib. */
+   {
+      char szBin[ 4096 ];
+      snprintf( szBin, sizeof( szBin ), "%s", szExe );
+      p = strrchr( szBin, '/' );
+      if( p )
+         *p = '\0';
+      snprintf( szTry, sizeof( szTry ), "%s/lib", szBin );
+      if( stat( szTry, &st ) == 0 && S_ISDIR( st.st_mode ) )
+      {
+         snprintf( szBuf, ( size_t ) nBufLen, "%s", szTry );
+         return;
+      }
+   }
+
+   /* Dev-tree fallback: walk up three dirs (clang, darwin, bin) to reach
+    * <prefix>, then append lib/darwin/clang. */
+   for( i = 0; i < 3; ++i )
+   {
+      p = strrchr( szExe, '/' );
+      if( p )
+         *p = '\0';
+      else
+      {
+         szBuf[ 0 ] = '.';
+         szBuf[ 1 ] = '\0';
+         return;
+      }
+   }
+
+   snprintf( szBuf, ( size_t ) nBufLen, "%s/lib/darwin/clang", szExe );
+
 #else
-   /* Non-Windows stub — not used in Plan 2 */
+   /* Non-Windows/non-macOS stub — Linux uses the system linker path */
    ( void ) nBufLen;
    szBuf[ 0 ] = '\0';
 #endif
