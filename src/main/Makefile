@@ -33,7 +33,12 @@ ifeq ($(HB_PLATFORM),darwin)
 # the LLVM back-end dispatch table at startup.
 HB_LLVM_LIBS    := -llldMachO -llldCommon
 HB_LLVM_LIBS    += $(shell $(HB_LLVM_CONFIG) --libs all)
-HB_LLVM_SYSLIBS := -lc++ $(shell $(HB_LLVM_CONFIG) --system-libs)
+# Use the LLVM SDK's libc++/libc++abi (matches the ABI the LLVM static libs
+# were built against). Apple's system libc++ headers in Xcode CLT 14 don't
+# match LLVM 19. -rpath makes the produced binary find libc++.1.dylib at
+# runtime in the SDK install (acceptable for dev; portable distribution
+# would copy these dylibs next to harbour or use @loader_path).
+HB_LLVM_SYSLIBS := -L$(HB_LLVM_PREFIX)/lib -lc++ -lc++abi -Wl,-rpath,$(HB_LLVM_PREFIX)/lib $(shell $(HB_LLVM_CONFIG) --system-libs)
 # Use the LLVM SDK's bundled ld64.lld via -fuse-ld=lld + -B. The system
 # /usr/bin/ld on macOS hosts with older Xcode CLT (14.x) can't parse
 # LLVM 19 bitcode in libLLVM*.a archives ("Unknown attribute kind (86)").
