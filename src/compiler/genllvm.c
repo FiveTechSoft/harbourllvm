@@ -1635,6 +1635,13 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
             HB_COMP_PARAM->szFile );
 #if defined( __APPLE__ )
    fprintf( yyc, "target triple = \"x86_64-apple-darwin\"\n" );
+#elif defined( __linux__ )
+   /* Triple required so LLVM picks .init_array (modern ELF) for
+    * @llvm.global_ctors. Without it the host-default codegen may emit
+    * legacy .ctors, which glibc's startup ignores → constructors never
+    * run → HB_FUN_MAIN never registered in dynsym table → runtime
+    * error 9012 "Can't locate the starting procedure: 'MAIN'". */
+   fprintf( yyc, "target triple = \"x86_64-pc-linux-gnu\"\n" );
 #endif
    fprintf( yyc, "%%HB_SYMB = type { i8*, i64, i8*, i8* }\n\n" );
    fprintf( yyc, "declare void @hb_vmExecute(i8*, %%HB_SYMB*)\n" );
