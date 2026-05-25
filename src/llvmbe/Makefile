@@ -13,10 +13,12 @@ HB_USER_CFLAGS += -I$(TOP)$(ROOT)src/compiler
 # without llvm-config) the wrapper sources cannot compile. src/Makefile
 # drops this subdir from DIRS in that case, so this guard is defensive.
 ifeq ($(HB_HAS_LLVM),yes)
-C_SOURCES := \
-   hb_llvmobj_wrap.c \
-
+# hb_llvmobj_wrap.cpp wraps the C source via extern "C" because the macOS
+# official LLVM 19 tarball's llvm-c headers transitively pull in C++ STL
+# (std::optional etc.) that won't compile under a C compiler. The wrapper
+# is compiled as C++ on all platforms; symbol linkage stays C.
 CPP_SOURCES := \
+   hb_llvmobj_wrap.cpp \
    hb_lldshim_wrap.cpp \
 
 endif
