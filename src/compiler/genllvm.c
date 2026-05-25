@@ -2093,9 +2093,17 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
     * (COFF .CRT$XCU / Mach-O __mod_init_func), so keep that path.
     * --------------------------------------------------------------------- */
 #if defined( __linux__ )
+   /* Place the constructor pointer in .init_array. "appending" linkage is
+    * only valid for special LLVM names (llvm.global_ctors/used/...), so
+    * use regular external linkage and add the global to @llvm.used to
+    * prevent --gc-sections from dropping it. */
    fprintf( yyc,
-            "@__hb_init_ptr = appending global [1 x void()*]\n"
-            "  [void()* @hb_vm_SymbolInit], section \".init_array\", align 8\n" );
+            "@__hb_init_ptr = global [1 x void()*] [void()* @hb_vm_SymbolInit], "
+            "section \".init_array\", align 8\n" );
+   fprintf( yyc,
+            "@llvm.used = appending global [1 x i8*] "
+            "[i8* bitcast([1 x void()*]* @__hb_init_ptr to i8*)], "
+            "section \"llvm.metadata\"\n" );
 #else
    fprintf( yyc,
             "@llvm.global_ctors = appending global [1 x { i32, void()*, i8* }]\n"
