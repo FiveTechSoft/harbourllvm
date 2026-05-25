@@ -34,7 +34,7 @@ ifeq ($(HB_PLATFORM),darwin)
 HB_LLVM_LIBS    := -llldMachO -llldCommon
 HB_LLVM_LIBS    += $(shell $(HB_LLVM_CONFIG) --libs all)
 HB_LLVM_SYSLIBS := -lc++ $(shell $(HB_LLVM_CONFIG) --system-libs)
-LD_RULE = $(LD) $(LDFLAGS) $(HB_LDFLAGS) $(HB_USER_LDFLAGS) $(LD_OUT)$(subst /,$(DIRSEP),$(BIN_DIR)/$@) $(^F) $(HB_LLVM_LIBDIR) -u _hb_llvmBackendRegister -lhbllvm $(LDLIBS) $(HB_LLVM_LIBS) $(HB_LLVM_SYSLIBS) $(LDSTRIP)
+LD_RULE = $(LD) $(LDFLAGS) $(HB_LDFLAGS) $(HB_USER_LDFLAGS) $(LD_OUT)$(subst /,$(DIRSEP),$(BIN_DIR)/$@) $(^F) $(HB_LLVM_LIBDIR) -u _hb_llvmBackendInit -lhbllvm $(LDLIBS) $(HB_LLVM_LIBS) $(HB_LLVM_SYSLIBS) $(LDSTRIP)
 else
 # Windows MinGW path (unchanged):
 # Standalone harbour.exe: statically link the MinGW C/C++ runtime +

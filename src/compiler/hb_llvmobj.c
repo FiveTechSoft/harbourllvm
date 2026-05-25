@@ -514,14 +514,21 @@ void hb_llvmRuntimeLibDir( char * szBuf, int nBufLen )
  * hb_llvmBackendInit
  *
  * Module constructor: called automatically when libhbllvm.a is linked into
- * an executable.  Registers the real LLVM back-end implementations into the
+ * an executable. Registers the real LLVM back-end implementations into the
  * dispatch table defined in libhbcplr.a (g_hb_llvm_backend).
  *
  * Using GCC's __attribute__((constructor)) ensures this runs before main(),
  * so the table is filled before any compiler call reaches genllvm.c.
+ *
+ * NOT static: macOS ld64 has no --whole-archive equivalent. To force the
+ * archive member to be pulled, src/main/Makefile passes -u _hb_llvmBackendInit
+ * on macOS; that requires the symbol be externally visible. On Windows,
+ * --whole-archive drags it in regardless of visibility. extern "C" linkage
+ * (the file is #include'd from a .cpp via `extern "C" {}`) keeps the
+ * Mach-O symbol name as plain `_hb_llvmBackendInit` with no C++ mangling.
  */
-static void hb_llvmBackendInit( void ) __attribute__((constructor));
-static void hb_llvmBackendInit( void )
+extern void hb_llvmBackendInit( void ) __attribute__((constructor));
+extern void hb_llvmBackendInit( void )
 {
    static const HB_LLVM_BACKEND s_backend = {
       hb_llvmEmitObject,
