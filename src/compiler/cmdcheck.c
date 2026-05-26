@@ -398,6 +398,35 @@ static const char * hb_compChkParseSwitch( HB_COMP_DECL, const char * szSwitch,
                   szSwPtr += 2;
                   break;
 
+               case 'T':
+               {
+                  /* -gt<name> : GT driver to register as active in -GL output.
+                   * Examples: -gtwin, -gtwvt, -gtstd, -gtcgi, -gtpca, -gtgui.
+                   * Stored lowercase; linker maps to hb_llvmgt<name>.o stub +
+                   * HB_FUN_HB_GT_<UPPER>_DEFAULT undefined-symbol force-link. */
+                  HB_SIZE nNameLen;
+                  szSwPtr += 2;
+                  nNameLen = hb_compChkOptionLen( szSwPtr, fEnv );
+                  if( nNameLen > 0 )
+                  {
+                     char * szName = hb_strndup( szSwPtr, nNameLen );
+                     HB_SIZE i;
+                     for( i = 0; i < nNameLen; ++i )
+                        if( szName[ i ] >= 'A' && szName[ i ] <= 'Z' )
+                           szName[ i ] = ( char ) ( szName[ i ] + ( 'a' - 'A' ) );
+                     if( HB_COMP_PARAM->szLLVMGtName )
+                        hb_xfree( ( void * ) HB_COMP_PARAM->szLLVMGtName );
+                     HB_COMP_PARAM->szLLVMGtName = szName;
+                     szSwPtr += nNameLen;
+                  }
+                  else
+                  {
+                     hb_compGenError( HB_COMP_PARAM, hb_comp_szErrors, 'F',
+                                      HB_COMP_ERR_BADPARAM, "-gt (missing name)", NULL );
+                  }
+                  break;
+               }
+
                case 'D':
                   if( HB_COMP_PARAM->szDepExt )
                   {

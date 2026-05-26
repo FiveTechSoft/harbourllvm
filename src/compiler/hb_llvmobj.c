@@ -217,7 +217,8 @@ static const char * const s_sysLibs[] = {
 int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
                     const char * szExePath,
                     const char * const * aszUserLibDirs, int nUserLibDirCount,
-                    const char * const * aszUserLibNames, int nUserLibNameCount )
+                    const char * const * aszUserLibNames, int nUserLibNameCount,
+                    const char * szGtName )
 {
    const char * argv[ HB_LLD_MAX_ARGS ];
    char         szLibArg[ 4096 ];
@@ -228,6 +229,38 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
    /* Heap-allocated strings we build for -L/-l/file args; freed after call. */
    char *       apszAlloc[ HB_LLD_MAX_ARGS ];
    int          nAlloc = 0;
+
+   /* GT driver registration: pick the hb_llvmgt<name>.o startup stub +
+    * force-link HB_FUN_HB_GT_<UPPER>_DEFAULT to drag libgt<name>.a in.
+    * Default (NULL or empty) preserves Plan-2 behavior: gtstd. */
+   char         szGtLow[ 16 ];
+   char         szGtUp[ 16 ];
+   char         szGtObjName[ 64 ];   /* "hb_llvmgt<name>.o" */
+   char         szGtUndefSym[ 64 ];  /* "HB_FUN_HB_GT_<UPPER>_DEFAULT" */
+#if defined( __APPLE__ )
+   char         szGtUndefSymMachO[ 72 ];  /* "_HB_FUN_HB_GT_<UPPER>_DEFAULT" */
+#endif
+   {
+      const char * pszSrc = ( szGtName && szGtName[ 0 ] ) ? szGtName : "std";
+      size_t       nLen   = strlen( pszSrc );
+      size_t       k;
+      if( nLen >= sizeof( szGtLow ) )
+         nLen = sizeof( szGtLow ) - 1;
+      for( k = 0; k < nLen; ++k )
+      {
+         char c = pszSrc[ k ];
+         szGtLow[ k ] = ( c >= 'A' && c <= 'Z' ) ? ( char ) ( c + ( 'a' - 'A' ) ) : c;
+         szGtUp[ k ]  = ( c >= 'a' && c <= 'z' ) ? ( char ) ( c - ( 'a' - 'A' ) ) : c;
+      }
+      szGtLow[ nLen ] = '\0';
+      szGtUp[ nLen ]  = '\0';
+      snprintf( szGtObjName,  sizeof( szGtObjName ),  "hb_llvmgt%s.o", szGtLow );
+      snprintf( szGtUndefSym, sizeof( szGtUndefSym ), "HB_FUN_HB_GT_%s_DEFAULT", szGtUp );
+#if defined( __APPLE__ )
+      snprintf( szGtUndefSymMachO, sizeof( szGtUndefSymMachO ),
+                "_HB_FUN_HB_GT_%s_DEFAULT", szGtUp );
+#endif
+   }
 
 #define PUSH_DUP( str )  do { \
       char * _p = strdup( str ); \
@@ -287,19 +320,19 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       /* User's compiled object */
       argv[ argc++ ] = szObjPath;
 
-      /* Bundled GT default stub: sets GTSTD as the active GT via
-       * hb_vmSetDefaultGT("STD"), overriding the platform default (gtwin).
-       * Shipped as lib/win/mingw64-rt/hb_llvmgtstd.o — no compilation at runtime. */
+      /* Bundled GT default stub: sets the chosen GT as the active GT via
+       * hb_vmSetDefaultGT("<UPPER>"). Shipped pre-built in lib/win/mingw64-rt/
+       * — one hb_llvmgt<name>.o per supported driver, picked by szGtName. */
       {
          char szPath[ 8192 ];
-         snprintf( szPath, sizeof( szPath ), "%s/hb_llvmgtstd.o", szRtDir );
+         snprintf( szPath, sizeof( szPath ), "%s/%s", szRtDir, szGtObjName );
          PUSH_DUP( szPath );
       }
 
-      /* Force-pull HB_FUN_HB_GT_STD_DEFAULT from libgtstd.a to ensure the gtstd
-       * registration code is linked in so hb_gt_Base() finds the STD driver. */
+      /* Force-pull HB_FUN_HB_GT_<UPPER>_DEFAULT from libgt<name>.a so the
+       * driver's registration code is linked in and hb_gt_Base() finds it. */
       argv[ argc++ ] = "--undefined";
-      argv[ argc++ ] = "HB_FUN_HB_GT_STD_DEFAULT";
+      PUSH_DUP( szGtUndefSym );
 
       /* Library search paths */
       PUSH_LDIR( szLibDir );    /* Harbour runtime archives: lib/win/mingw64    */
@@ -376,8 +409,8 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       }
 
       snprintf( szCrt1, sizeof( szCrt1 ), "%s/usr/lib/crt1.o", pszSdk );
-      /* hb_llvmgtstd.o is built next to the Harbour runtime libs by T4. */
-      snprintf( szGtObj, sizeof( szGtObj ), "%s/hb_llvmgtstd.o", szLibDir );
+      /* hb_llvmgt<name>.o is built next to the Harbour runtime libs by T4. */
+      snprintf( szGtObj, sizeof( szGtObj ), "%s/%s", szLibDir, szGtObjName );
 
       argv[ argc++ ] = "ld64.lld";
       argv[ argc++ ] = "-arch";
@@ -394,7 +427,7 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       argv[ argc++ ] = szObjPath;
       argv[ argc++ ] = szGtObj;
       argv[ argc++ ] = "-u";
-      argv[ argc++ ] = "_HB_FUN_HB_GT_STD_DEFAULT";   /* Mach-O underscore */
+      PUSH_DUP( szGtUndefSymMachO );   /* Mach-O underscore */
 
       PUSH_LDIR( szLibDir );   /* lib/darwin/clang (Harbour runtime) */
 
@@ -495,7 +528,7 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       snprintf( szCrtn,     sizeof( szCrtn ),     "%s/crtn.o",     pszLibcCrtDir );
       snprintf( szCrtbegin, sizeof( szCrtbegin ), "%s/crtbegin.o", s_szGccLibDir );
       snprintf( szCrtend,   sizeof( szCrtend ),   "%s/crtend.o",   s_szGccLibDir );
-      snprintf( szGtObj,    sizeof( szGtObj ),    "%s/hb_llvmgtstd.o", szLibDir );
+      snprintf( szGtObj,    sizeof( szGtObj ),    "%s/%s", szLibDir, szGtObjName );
 
       argv[ argc++ ] = "ld.lld";
       argv[ argc++ ] = "-m";
@@ -515,7 +548,7 @@ int hb_llvmLinkExe( const char * szObjPath, const char * szLibDir,
       PUSH_DUP( szGtObj );
 
       argv[ argc++ ] = "-u";
-      argv[ argc++ ] = "HB_FUN_HB_GT_STD_DEFAULT";   /* ELF: no underscore prefix */
+      PUSH_DUP( szGtUndefSym );   /* ELF: no underscore prefix */
 
       PUSH_LDIR( szLibDir );          /* Harbour runtime archives */
       PUSH_LDIR( pszLibcCrtDir );     /* glibc + ld-linux */

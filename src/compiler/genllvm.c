@@ -2186,7 +2186,8 @@ void hb_compGenLLVMCode( HB_COMP_DECL, PHB_FNAME pFileName )
                 HB_COMP_PARAM->szLLVMUserLibDirs,
                 HB_COMP_PARAM->iLLVMUserLibDirCount,
                 HB_COMP_PARAM->szLLVMUserLibNames,
-                HB_COMP_PARAM->iLLVMUserLibNameCount ) == 0 )
+                HB_COMP_PARAM->iLLVMUserLibNameCount,
+                HB_COMP_PARAM->szLLVMGtName ) == 0 )
          {
             if( ! HB_COMP_PARAM->fQuiet )
                hb_compOutStd( HB_COMP_PARAM, "LLVM: executable created\n" );

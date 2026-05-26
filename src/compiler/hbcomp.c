@@ -370,5 +370,8 @@ void hb_comp_free( PHB_COMP pComp )
          hb_xfree( ( void * ) pComp->szLLVMUserLibNames[ j ] );
    }
 
+   if( pComp->szLLVMGtName )
+      hb_xfree( ( void * ) pComp->szLLVMGtName );
+
    hb_xfree( pComp );
 }

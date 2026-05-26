@@ -858,6 +858,10 @@ typedef struct _HB_COMP
    int               iLLVMUserLibDirCount;
    const char *      szLLVMUserLibNames[ HB_LLVM_USER_LIB_MAX ]; /* -uselib=<name> */
    int               iLLVMUserLibNameCount;
+
+   /* LLVM back-end GT driver selection (-gt<name>). NULL = default ("STD").
+    * Lowercase suffix, e.g. "win" -> registers gtwin as the active GT. */
+   const char *      szLLVMGtName;
 } HB_COMP, * PHB_COMP;
 
 typedef struct
