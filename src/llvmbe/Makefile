@@ -33,24 +33,33 @@ LIBNAME := hbllvm
 
 include $(TOP)$(ROOT)config/lib.mk
 
-# Compile hb_llvmgtstd.c -> <lib-dir>/hb_llvmgtstd.o so the embedded LLVM
-# back-end can find it at link time via szLibDir. Output goes next to the
-# Harbour runtime archives.
+# Compile hb_llvmgt<name>.c -> <lib-dir>/hb_llvmgt<name>.o so the embedded
+# LLVM back-end can find them at link time via szLibDir. Output goes next
+# to the Harbour runtime archives. One object per supported GT driver so
+# that `harbour -GL -gt<name>` can pick a non-default driver at link time.
+#
+# Linux/macOS GT set: gtstd (default), gtcgi, gtpca, gttrm — matches the
+# `s_hbRuntimeLibs` list in src/compiler/hb_llvmobj.c for these platforms.
+# (Windows pre-ships hb_llvmgt{std,win,wvt,gui,cgi,pca}.o under
+#  lib/win/mingw64-rt/ — its set includes the Win32-only gtwin/wvt/gui.)
+#
 # Guard: only when HB_HAS_LLVM=yes (LLVM SDK is present).
 ifeq ($(HB_HAS_LLVM),yes)
 
+HB_LLVMGT_NAMES := std cgi pca trm
+
 ifeq ($(HB_PLATFORM),darwin)
-HB_LLVMGT_OBJ := $(TOP)$(ROOT)lib/darwin/clang/hb_llvmgtstd.o
+HB_LLVMGT_DIR := $(TOP)$(ROOT)lib/darwin/clang
 else ifeq ($(HB_PLATFORM),linux)
-HB_LLVMGT_OBJ := $(TOP)$(ROOT)lib/linux/gcc/hb_llvmgtstd.o
+HB_LLVMGT_DIR := $(TOP)$(ROOT)lib/linux/gcc
 endif
 
-HB_LLVMGT_SRC := $(TOP)$(ROOT)src/llvmbe/runtime/hb_llvmgtstd.c
+ifdef HB_LLVMGT_DIR
+HB_LLVMGT_OBJS := $(foreach n,$(HB_LLVMGT_NAMES),$(HB_LLVMGT_DIR)/hb_llvmgt$(n).o)
 
-ifdef HB_LLVMGT_OBJ
-first:: $(HB_LLVMGT_OBJ)
+first:: $(HB_LLVMGT_OBJS)
 
-$(HB_LLVMGT_OBJ): $(HB_LLVMGT_SRC)
+$(HB_LLVMGT_DIR)/hb_llvmgt%.o: $(TOP)$(ROOT)src/llvmbe/runtime/hb_llvmgt%.c
 	$(CC) -c -O2 -fno-common -I$(TOP)$(ROOT)include -o $@ $<
 endif
 
